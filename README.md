@@ -1,5 +1,11 @@
 # Home Karaoke
 
+> **Educational experiment.** This project explores audio source separation, lyric alignment and
+> local web apps. It is not a product or a service. You are responsible for making sure your use
+> complies with the laws where you live and with the terms of use of every site and service it
+> touches (YouTube, Spotify, LRCLIB, Shironet and others), including copyright in songs, videos
+> and lyrics. See [Disclaimer](#disclaimer).
+
 Turn any YouTube link, Spotify track link or song name (Hebrew or English) into karaoke on your TV:
 AI vocal removal, an adjustable vocal guide, a dimmed music video in the background, and lyrics that
 follow the singer. Guests queue songs from their phones by scanning a QR code.
@@ -54,4 +60,26 @@ a random key that changes every run); other devices on the network, VPN peers an
 control the party. The TV is this computer, or any device opened with the printed TV link. Song ids,
 messages and uploads are validated and rate-limited; see `specs/party-queue.md` → "Access and safety".
 
-Personal use only: downloading from YouTube may break its terms of service.
+## Disclaimer
+
+This is an educational experiment, provided as is, without warranty of any kind (see
+[LICENSE](LICENSE)).
+
+- **Your responsibility.** Before using it, check that downloading, processing, displaying or
+  sharing media and lyrics is allowed for you. That depends on local law, including copyright, and
+  on the terms of use of the services involved. Downloading from YouTube, for example, may be
+  against its terms of service.
+- **No content included.** The repository ships no songs, videos, lyrics or model weights. Anything
+  the app fetches comes from third-party services at your request, under their terms. The machine
+  learning models are downloaded from their publishers under their own licenses.
+- **Private, non-commercial use.** It is meant for a home setting. Don't use it to host public or
+  paid events, redistribute content, or run it as a service.
+- **No affiliation.** Not affiliated with, endorsed by or connected to YouTube, Google, Spotify,
+  LRCLIB, Shironet/Mako or any artist or rights holder. Names are used only to identify the
+  services the software works with.
+
+## License
+
+The source code is released under the [MIT License](LICENSE). The license covers this code only.
+It does not cover the content you process with it or the third-party models and libraries it uses,
+which keep their own licenses and terms.

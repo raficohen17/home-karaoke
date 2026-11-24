@@ -47,3 +47,4 @@ summary { cursor: pointer; color: var(--muted); }
 #paste-form { flex-direction: column; margin-top: 10px; }
 #paste-form select, #paste-form textarea { width: 100%; background: #0f0f19; color: var(--fg); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font-size: 16px; font-family: inherit; }
 #paste-form textarea { unicode-bidi: plaintext; resize: vertical; }
+.disclaimer { font-size: 12px; color: var(--muted); text-align: center; margin: 18px 8px 0; line-height: 1.4; }

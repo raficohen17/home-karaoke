@@ -32,7 +32,10 @@ JOIN_PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Karaoke</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d0d16;color:#f1effa;
 font:18px system-ui,sans-serif;text-align:center;padding:24px}h1{color:#ffd34d}</style></head>
-<body><div><h1>Karaoke</h1><p>Scan the QR code on the TV to join the party.</p></div></body></html>"""
+<body><div><h1>Karaoke</h1><p>Scan the QR code on the TV to join the party.</p>
+<p style="font-size:12px;color:#9a97b0;max-width:420px">Educational experiment, provided as is. You're
+responsible for making sure your use complies with local law and the terms of use of the services
+involved.</p></div></body></html>"""
 COOKIE_AGE = 12 * 3600
 PUBLIC_PREFIXES = ("/static/",)
 TV_ONLY = ("/tv", "/api/info", "/qr.svg")
