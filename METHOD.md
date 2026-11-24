@@ -1,0 +1,374 @@
+# Method
+
+How work is planned, built, released, verified and finished in a repository that runs Kyspec.
+Kyspec keeps requirements with their code, decisions where future work will find them, and a
+clear test for when a change is finished.
+
+This page is the operational reference cited by the five skills. It describes the current
+method; Git holds its history. For the introduction, read [README.md](README.md). For the
+reasoning behind the method, read [WHY.md](WHY.md).
+
+A product keeps its own tier-1 documents, such as principles and style rules, beside this
+page and names them in its `AGENTS.md` under `## Method declarations`. This page governs the
+work itself.
+
+## Principles
+
+1. **A spec changes in the same commit as its code.** Editing them separately makes drift
+   easy. Updating both together lets the reviewer assess the contract and its implementation
+   in one diff.
+
+2. **A spec describes the present. Git is the history.** No archive directories, no status
+   files, no "was/now". The spec tells a reader what the system does; `git log` explains how it
+   got there.
+
+3. **Decisions and their rationale are kept, numbered, and cited from the place they
+   govern.** A decision lives in its spec's Design notes under a stable id of the form
+   `D-<capability>-N`, from the commit that ships the code it governs. Code, tests and gates
+   cite that id. The rationale is in the spec while the change is open and after it is
+   deleted.
+
+4. **Write only what will be read again.** Every artifact names its reader: a future
+   session, CI, or code. Ask "who reads this next month?" An artifact with no answer is not
+   written.
+
+5. **One change, one unit, deleted when done.** A change carries Why, Specs, Prior art,
+   Decisions, Tasks, Surface review and Verification. Keep its scope small enough to finish.
+   Its requirements and decisions move into the spec as their code ships, so an open change
+   holds only what has not shipped and what waits on someone. Once no task is open and
+   verification passes, the change is deleted.
+
+6. **Evidence, not narrative.** A task line carries a commit SHA, a count, a dated live
+   check, or a struck-through "not needed" naming the decision that removed the need. Once
+   the task is done, the commit that removes it from the change carries that evidence, and
+   git is the record. No logs or diaries: the reader needs to know whether the task is done
+   and how to check.
+
+7. **Done means verified by someone who didn't build it.** A change that touches what a user
+   sees is verified by a fresh thread that did not write the code. It uses the released
+   product as that user would ("Verify"). It lists the change's requirements one per line to
+   keep the check focused on the contract. A change no user can see is done on its release
+   evidence and says why it skipped verify.
+
+8. **A rule nobody enforces is a rule nobody has.** Structure that matters gets a CI check.
+   Each document section names the gate that enforces it, or says "judgment" and names the
+   review that applies it, or is deleted. A gate's failure message links to the section it
+   enforces.
+
+9. **Nothing stands between the model and the file.** A skill is one short page of prose:
+   no Kyspec CLI, no templates fetched at run time, no artifact graph. The method works the
+   same way in a cloud session. The model reads the instructions and edits the files the
+   change needs.
+
+10. **Inside the repository, the contract is the spec and the commit. Issues are the
+    contract with the outside.** A change spanning directories is one change, and each of its
+    commits is one commit across those directories: what must move together moves together,
+    the spec with its code, a route with its docs and clients, never a commit per directory
+    with an issue as the thread between them. Issues keep three jobs: the trackers where
+    users report, forks that are not ours, and backlog not yet picked up.
+
+## Three tiers
+
+**Tier 1: principles.** This page and the principle documents declared under Principles in
+`AGENTS.md`'s "Method declarations". They change only through a change whose Decisions say
+"amends `<doc>` #N because". Number the principles so specs can cite them
+(`principles #2`, `method #6`). A principle nothing cites is a candidate for deletion.
+
+**Tier 2: specs.** `specs/<capability>.md` is the current contract for one capability. A spec
+with attachments, such as fixtures or manifests, uses a directory instead:
+`specs/<capability>/<capability>.md`, with the attachments beside it.
+
+Write specs in the present tense. Requirements have stable names and WHEN/THEN scenarios.
+Design notes hold decisions under `D-<capability>-N` ids, with their rationale and citations
+to the tier-1 principles they apply. A spec cites a tier-1 rule instead of restating it.
+
+**Tier 3: ideas.** Each idea has one file, `ideas/<name>.md`. Its first line is
+`status: seed | explored | parked | rejected | adopted`; any other first line fails the
+layout gate. An adopted idea names its change: `status: adopted — changes/<name>.md`.
+
+When the change finishes, any lasting context from the idea moves into the spec's Purpose
+and the idea file is deleted. Parked and rejected ideas stay with their reasons, so a later
+session can understand the decision without rediscovering it. Every brainstorm ends in an
+idea file, even a five-line `seed`. Only an explicit instruction to drop the idea writes
+nothing.
+
+An open question only a person can answer is a plain list item that opens with the waiting
+marker, spelled and placed as "A change" says: `- (waiting: <name> — <question>)` or
+`- (waiting: <name> on <act> — <question>)`, a person and never a date or a release; the question
+may wrap onto the lines after. While an idea holds one about what is
+built, kyspec-plan starts no change from it; the idea waits for the answer.
+
+**Products.** A repository with more than one product nests each tree by product:
+`specs/<product>/<capability>.md`, `changes/<product>/<name>.md`, and
+`ideas/<product>/<name>.md`. A spec, change or idea belongs to the product its name starts
+with and drops that prefix. A single-product repository does not nest. Paths on this page
+and in the skills omit the product segment; add it where the repository nests.
+
+## The chain
+
+Five skills run the method. Each is one short page (principle 9).
+
+| Step | Skill | Result |
+| --- | --- | --- |
+| 1 | **kyspec-brainstorm** | Starts or continues an idea file and always ends in one ("Three tiers"). |
+| 2 | **kyspec-plan** | Writes the change file ("A change"). |
+| 3 | **kyspec-implement** | Works the tasks, pushes, records CI, then runs the product's Release skills and records their evidence. |
+| 4 | **kyspec-verify** | Checks the released product in a fresh thread without reading the code or diff ("Verify"). |
+| 5 | **kyspec-finish** | Settles the change into the specs and deletes it ("Finishing a change"). |
+
+Each skill accepts the change or idea name and ends by naming the next step. The chain runs
+from "implement owner/repo#N" in one coordinating thread, with no question a one-shot cannot
+answer. Verify alone runs in a fresh agent.
+
+**Fast forward.** The person can say `ff` or "fast forward" at any step. From then on the
+thread runs the rest of the chain without handing back: each skill's End goes straight on to
+the step it names, through the Release skills, verify when "Verify" requires it, and finish. A
+choice a skill would have put to the person is made, and written as a decision with its reason
+and the alternative it rejects, so the specs' Design notes show it later. Fast forward changes
+no rule, it only removes the hand-backs: verify still runs for a user-facing flow (only the
+person's own "skip verify" skips it, written `Verify: skipped — by <name>: <reason>`), and
+nothing the product reserves for a person happens without them. It stops only for:
+
+1. a question about what is built that only a person can answer (kyspec-plan's stop);
+2. an act the product's `AGENTS.md` reserves for a person: a declared person act, an
+   approval, a spend beyond the free path;
+3. verify stopping short of a pass ("Verify"), or CI the thread cannot turn green.
+
+At a stop the thread first does all the work it still can and marks each wait ("A change"),
+then stops once, naming them. Fast forward ends with one report: what shipped, the decisions
+made without the person, and where and why it stopped. The mode lasts for the thread and is
+written nowhere; a new session needs `ff` again.
+
+Scale the writing to the change: every section may be one line. The five skills are the same
+for every product; product-specific details live in declarations.
+
+Two pages are outside the chain. **kyspec-waiting** reports, from `main`, everything that
+waits on one person, grouped by the act that would release it; it reads and starts nothing.
+**kyspec-migrate**: a repository arriving from OpenSpec runs it once, on a branch, and it ends
+by recording the migration as that repository's first change (`MIGRATING.md`).
+
+## Method declarations
+
+In `AGENTS.md`, a product adds `## Method declarations` and declares the six things the
+skills cannot know. An undeclared line means that step does not exist for the product.
+
+- **Principles:** the tier-1 documents beside this page. Their numbered principles are
+  cited by specs and changes (`principles #N`). Without a declaration, this page is the only
+  tier-1 document.
+- **Release:** the skills that ship a change. kyspec-implement runs the ones needed by the
+  diff and records their evidence under Verification.
+- **Coordination room:** whether a room exists, and how to claim an area and announce in it.
+  kyspec-plan and kyspec-implement claim; kyspec-implement and kyspec-finish announce. These
+  steps run only when a room is declared.
+- **Surface review:** the skill that reviews a diff of the product's surface, the paths it
+  covers, and the documents it judges against. kyspec-plan and kyspec-implement invoke it
+  only when it is declared and the change touches those paths. The surface is what users
+  touch: an API, a UI, a CLI, a published client, or its documentation.
+- **Verifier identities:** where a verify thread signs in as each kind of user the product
+  has, such as a member, an admin, or a fresh account on the free path. kyspec-verify signs in
+  with them. A kind with no identity yet is made by the thread that needs it and recorded
+  here, never waited on; undeclared, the first verify thread that needs one adds the line.
+- **Person acts:** each act a person may be waited on for: an id (lowercase words joined by
+  hyphens), who takes it, where (a device, a site, a credential), the exact instruction, and
+  whether it is one-time (it stays done, like a grant) or per-sitting (done each time, like a
+  login or a phone in hand). A real-world act is declared by where it is done, so one sitting
+  there covers every change that needs it. A marker names its act
+  (`waiting: <name> on <act>`), and kyspec-waiting groups by it. A wait that names no act is a
+  one-off; one that names an act not declared here is reported as undeclared.
+
+## A change
+
+A change is a bounded unit of work between an idea and the spec. It is deleted when finished.
+Use one file, `changes/<name>.md`. A change with attachments, such as a spike script or
+evidence, uses `changes/<name>/` with `<name>.md` beside the attachments.
+
+The file has exactly the seven H2 sections below, in this order. The layout gate refuses any
+other set or order, and refuses a change directory without its `<name>.md`. An H1 title and a
+`Source:` line naming the issue or idea may precede the sections.
+
+**No change file** is needed for a commit that touches no spec and carries no decision, such
+as a typo, a dependency bump, or a test fix.
+
+**Why.** Describe the problem, the reader it serves, and an outcome a verifier can observe,
+in a few sentences. Leave implementation details out of this section.
+
+**Specs.** Name the target spec paths, marking new ones as new. Write the intended
+requirements and scenarios in the spec's own requirement and WHEN/THEN form, in the present
+tense they will have in the spec. Each requirement moves into its main spec in the same
+commit as the code that satisfies it (principle 1). At finish, this section contains no
+promise the spec does not already keep. There are no delta-spec files.
+
+**Prior art.** Mandatory, and written before Decisions. List the principles the change
+touches by number, the `## Design notes` D-ids and requirements of nearby specs, the open
+changes whose Specs name the same specs, and any idea on the topic. Mark each relevant item
+`keep` or `override` in one line. Restate every override in Decisions with its reason; an
+override of an open change's decision is settled with that change. A decision that silently
+contradicts prior art is a defect.
+
+**Decisions.** Use `D1`, `D2`, and so on inside the change. Each states the decision, its
+reason, and the alternative it rejects. A decision that governs code moves into the owning
+spec's Design notes as `D-<capability>-N` in the commit that ships that code (principle 3),
+and the change keeps one line, `D<n> → D-<capability>-N in <spec path>`. A decision that only
+governs the work, such as sequencing or a spike, stays in the change and goes with it.
+
+**Tasks.** A checklist with evidence on each line (principle 6): a commit SHA, a count, a
+dated live check, a struck-through "not needed" naming the decision that removed the need, a
+struck-through "moved" naming where the task went, or a struck-through "skipped by <name>" with
+the reason, for a step only that person could take and chose to skip. A task without evidence
+is open. For a
+public surface change, include the documentation and clients in the blast radius named by the
+product's `AGENTS.md`.
+
+A task blocked on something outside the work carries one marker, which opens the task (after
+its number, where tasks are numbered):
+
+- `(waiting: <name> on <act> — <what unblocks it>)`: a person, for one of the product's declared
+  person acts ("Method declarations");
+- `(waiting: <name> — <what unblocks it>)`: a person, once;
+- `(waiting: <YYYY-MM-DD> — <what>)` or `(waiting: release — <what>)`: a date or a release;
+- `(after <task number> — <what>)`: another task of this change, never written as a wait on
+  whoever that task waits on.
+
+The marker is spelled exactly as shown: its opening in printable ASCII with one space between
+its words (no tab, no other or invisible space, no code); the opening, through its ` — `, on the
+task's first line after spaces or tabs; a person's name one person's, in ASCII letters, each word
+starting with a capital and ending with a letter (`Dana`, `Mary Ann`, `O'Brien`), and ` on `
+before an act in lowercase. No other line under `changes/` or `ideas/` looks like one: an example
+is quoted in a code span. A change or an idea is plain text, its lines ending in LF or CRLF, and
+what is under `changes/` and `ideas/` is committed as it is checked out (no symlink, no
+`working-tree-encoding` or `filter` attribute, no submodule, and git able to say so). So a grep finds every wait, and every line it finds is one. The marker never sits inside a task's text and goes when the task is ticked; no other text under
+Tasks carries one, neither a heading nor a line of prose. The change's state is read from its
+tasks, never written, and kyspec-waiting reads every wait on a person from them. Missing access
+(a sign-in, an account, a grant, a role, a tool) is never a wait: the thread that meets it
+acquires it, and a person's wait names an act only that person can take. A task that serves no requirement under Specs and no decision is not
+the change's work: it is done as a plain commit, or struck `moved — ideas/<name>.md` (a question
+worth thinking about) or `moved — owner/repo#N` (a chore).
+
+**What an open change holds.** At the end of each kyspec-implement run the change is
+compacted: ticked and struck tasks leave the file, their evidence in the message of the commit
+that removes them (principle 6); Decisions keeps only those not yet in a spec, so its pointer
+lines go; Specs keeps its
+pointer lines, which name what verify checks; Verification keeps the CI and release lines and the latest
+cycle. `git log -- <change>` is the history, so an open change reads as what is left.
+
+**Surface review.** Required when the product declares a surface review and the diff touches
+its paths. The declared review skill reads the diff, using the declared documents as its
+rubric. Its output contains:
+
+- One line per rule: `pass`, `concern <file:line>`, or `n/a` with a reason.
+- A `Checked:` line naming every surface file read.
+- A verdict of `pass`, `concerns`, or `fail`.
+
+A `fail` is fixed before pushing. Until the diff exists, this section holds the plan's note
+("Before planning a surface change"). A change with no surface, or one that touches a surface
+path without changing user-visible behavior, says `Surface review: N/A — <reason>` with a
+concrete reason.
+
+**Verification.** kyspec-implement records the CI run for the pushed commit and the deploy
+or publish result with its live check, or `Release: none — <reason>`. This is followed by the
+verify cycles ("Verify"), preceded by `Verify budget: N — <reason>` when the change needs
+other than the default five, or by `Verify: skipped — <reason>` when no user-facing flow
+changed. kyspec-implement writes the skip line.
+
+## Verify
+
+Verification (principle 7) runs in a fresh thread that did not write the code. It is required
+when the change touches a user-facing flow, whether a declared surface or any UI flow. It is
+optional otherwise; a skipped verify says why.
+
+The verifier follows these rules:
+
+- **Read the contract.** Read only the change's Why and Specs, and the specs they name.
+  Hold only what the product's user holds: public docs and published clients for a product
+  used by agents or developers, or the app for one used by people. Never read the diff.
+- **Use the released product.** Check production or the deployed branch. A live surface
+  is verified live, never by a unit test alone.
+- **Sign in as the declared identities** ("Method declarations"). A scenario that needs a
+  kind of user with no identity yet makes one first and records it; it is never blocked for
+  want of one.
+- **Record observations.** Append a dated cycle to Verification. List its scope one
+  requirement per line, record `pass`, `fail`, or `blocked` for each item with what was
+  observed, and give a verdict.
+- **Send failures back to implementation.** A failure adds unchecked tasks for
+  kyspec-implement; an item blocked on a person, a date or a release adds its task with the
+  waiting marker. The next release gets a new verification cycle.
+- **Name what cannot be reached.** A scenario no user can reach by ordinary means, such as
+  fault injection or a paid plan bought only for the test, is named out of reach and stays
+  outside the verdict. Finish strikes it or moves it to an idea unless a test covers it.
+- **Stay within the free path.** Spend nothing beyond the product's free path and remove
+  what the verification creates.
+
+**The loop.** The thread that ran kyspec-implement drives verification. It starts the verifier
+as a fresh agent given only the change name, reads the cycle from the change file (never from
+the agent's summary alone), works the tasks a failure added, releases, and starts the next
+verifier, which reads the earlier cycles and runs the whole scope again, never only the failed
+item. The loop ends on the first of three:
+
+1. **Pass.** Every in-scope item passes; kyspec-finish follows.
+2. **No progress.** A cycle fails the same item with the same observation as the cycle before.
+   The fix did not take, so the diagnosis is wrong, not the code, and a person decides.
+3. **The budget.** Five cycles, unless the change's Verification says
+   `Verify budget: N — <reason>` before its first cycle. A cycle count, never a clock: the
+   product's release time bounds the loop already.
+
+At a stop short of pass the change stays open with its failed tasks unchecked, Verification
+gains `Verify stopped after cycle N — <what remains>`, and the user is told, with the
+coordination room told at high importance when one is declared. An item the builder cannot
+unblock is out of reach, and goes the route above.
+
+## Finishing a change
+
+kyspec-finish takes five steps before deleting the change:
+
+1. **It may finish:** no task is open (one struck as moved names where it went, one struck as
+   skipped names who skipped it and why), and Verification holds a green CI run, release
+   evidence, and either a passing latest verify cycle or a skip line. Otherwise, stop and name
+   what is missing.
+2. **Specs settled:** every intended requirement is in its main spec. Strike anything still
+   unshipped with a reason, or move it out as a new idea. The Specs section holds no promise.
+3. **Decisions folded:** a decision whose code shipped is in its spec already (principle 3).
+   Move any decision that still governs the code and is not into the owning spec's
+   `## Design notes` as `D-<capability>-N`, using the next free N and keeping its rationale.
+   Repoint every code comment, test or doc that cites the change's path to the relevant id.
+4. **Idea retired:** move any lasting context into the spec's Purpose and delete the idea
+   file.
+5. **Loop closed:** close the issues named by the change through the commit message, file
+   every bug the change recorded and left unfixed as a GitHub issue (none is lost with the
+   deleted change file), and announce in the coordination room if one is declared.
+
+Then `git rm` the change in the same commit as the spec edits and push. Git holds the history.
+There is no archive directory or date-prefixed change; the layout gate refuses both.
+
+## Before planning a surface change
+
+A change that could touch the declared surface is planned against the documents named by
+the Surface review declaration. This includes routes, response bodies, errors, auth, billing,
+deploys, clients, help docs, and public workflows. Read those documents before planning and
+again before implementation.
+
+Until the diff exists, the change's `## Surface review` holds the plan's note: the surface
+touched, the rules in play, the clients and docs that must move with it, and any deviation
+with its reason. A change with no public surface says `Surface review: N/A — <reason>`.
+The declared review skill replaces the note with its review of the built diff.
+
+## Gates
+
+These are the mechanical checks for this page (principle 8). Each check's comment header
+cites the section it enforces.
+
+| Section | Check |
+| --- | --- |
+| "A change" (one file or `<name>/<name>.md`; the seven sections, in order; the waiting markers' forms and place) | `check-layout.mjs` |
+| "Finishing a change" (no archive directory, no date-prefixed change) | `check-layout.mjs` |
+| "Three tiers" (an idea's first line is its status; a waiting marker opening a list item has the form "A change" gives) | `check-layout.mjs` |
+
+These checks enforce layout. The remaining requirements below rely on review and the finish
+workflow; the layout gate does not establish that a requirement is implemented or that
+verification evidence is sound.
+
+A product adds a row for each section of its own tier-1 documents with a mechanical check,
+such as a route-shape test, vocabulary sweep, or docs-alignment test. It names the review that
+applies the rest.
+
+**Judgment**, applied by the reviewer of a change and by kyspec-finish's first two steps:
+principles 1, 3, 4, 5, 6 and 7, and the declared surface review's rubric on every surface diff.
