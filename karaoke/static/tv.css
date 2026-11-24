@@ -1,0 +1,57 @@
+[hidden] { display: none !important; }
+:root {
+  --bg: #07070c;
+  --fg: #f4f2ff;
+  --dim: rgba(244, 242, 255, 0.45);
+  --accent: #ffd34d;
+  --panel: rgba(12, 12, 22, 0.72);
+  --line: rgba(255, 255, 255, 0.12);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); overflow: hidden;
+  font-family: "Rubik", "Assistant", system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
+#video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: brightness(0.35); }
+#shade { position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.55)); pointer-events: none; }
+
+#lyrics { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 0 6vw; gap: 2.2vh; pointer-events: none; }
+.line { unicode-bidi: plaintext; text-align: center; font-size: 3.4vw; line-height: 1.25; color: var(--dim);
+  transition: color .25s, transform .25s, opacity .25s; max-width: 88vw; text-shadow: 0 2px 12px rgba(0,0,0,.7); }
+.line.active { color: var(--accent); transform: scale(1.12); font-weight: 600; }
+.line.far { opacity: .35; }
+.line.empty::before { content: "♪"; }
+
+#prompter { position: fixed; inset: 12vh 8vw 14vh; overflow: hidden; mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent); }
+#prompter-text { unicode-bidi: plaintext; white-space: pre-line; text-align: center; font-size: 3.2vw; line-height: 1.6;
+  padding: 35vh 0; will-change: transform; text-shadow: 0 2px 12px rgba(0,0,0,.7); }
+
+#nowplaying { position: fixed; top: 2.5vh; left: 3vw; right: 22vw; }
+#np-title { unicode-bidi: plaintext; font-size: 1.6vw; font-weight: 600; opacity: .9; }
+#np-mode { font-size: .95vw; color: var(--dim); margin-top: .4vh; letter-spacing: .04em; text-transform: uppercase; }
+
+#join { position: fixed; top: 2.5vh; right: 2vw; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 10px; text-align: center; backdrop-filter: blur(6px); }
+#qr { width: 9vw; min-width: 110px; height: auto; background: #fff; border-radius: 8px; display: block; }
+#join-url { font-size: max(.8vw, 11px); color: var(--dim); margin-top: 6px; }
+body.playing #join { opacity: .55; transform: scale(.75); transform-origin: top right; transition: all .4s; }
+
+#idle { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+#idle h1 { font-size: 7vw; margin: 0; letter-spacing: .02em; color: var(--accent); }
+#idle-msg { unicode-bidi: plaintext; font-size: 2.2vw; color: var(--fg); opacity: .85; }
+body.playing #idle { display: none; }
+
+#controls { position: fixed; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 1.2vw; padding: 1.4vh 2vw;
+  background: linear-gradient(transparent, rgba(0,0,0,.75)); opacity: 0; transition: opacity .3s; }
+body:hover #controls, #controls:focus-within, body.paused #controls { opacity: 1; }
+#controls button { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; font-size: 1.3vw; padding: .5vh 1vw; cursor: pointer; }
+#seek { flex: 1; }
+#time { font-variant-numeric: tabular-nums; min-width: 7ch; }
+.vocal { display: flex; align-items: center; gap: .6vw; font-size: 1vw; }
+.nudge { display: flex; align-items: center; gap: .4vw; font-size: 1vw; }
+input[type=range] { accent-color: var(--accent); }
+
+#unlock { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
+#unlock-btn { font-size: 3vw; padding: 2vh 4vw; border-radius: 18px; border: 0; background: var(--accent); color: #111; font-weight: 700; cursor: pointer; }
+#unlock p { color: var(--dim); font-size: 1.2vw; }
+body.unlocked #unlock { display: none; }
+#loading { position: fixed; bottom: 12vh; left: 50%; transform: translateX(-50%); background: var(--panel); padding: 1vh 2vw; border-radius: 12px; font-size: 1.4vw; }

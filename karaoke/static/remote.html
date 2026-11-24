@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0d16">
+<title>Karaoke Remote</title>
+<link rel="stylesheet" href="/static/remote.css">
+</head>
+<body>
+<header>
+  <h1>Karaoke</h1>
+  <span id="tv-status" class="pill">TV offline</span>
+</header>
+
+<section class="card" id="now">
+  <div class="label">Now playing</div>
+  <div id="now-title" dir="auto">Nothing yet</div>
+  <div class="row transport">
+    <button data-cmd="seek" data-delta="-10" aria-label="Back 10 seconds">−10s</button>
+    <button id="btn-pause" data-cmd="pause">Pause</button>
+    <button data-cmd="seek" data-delta="10" aria-label="Forward 10 seconds">+10s</button>
+    <button data-cmd="skip" class="warn">Skip</button>
+  </div>
+  <label class="slider">Vocal guide
+    <input id="vocal" type="range" min="0" max="100" value="55"><output id="vocal-out">55%</output>
+  </label>
+  <div class="row" id="nudge" hidden>
+    <span>Teleprompter</span>
+    <button data-cmd="nudge" data-dir="-">Slower</button>
+    <button data-cmd="nudge" data-dir="+">Faster</button>
+  </div>
+</section>
+
+<section class="card">
+  <form id="add-form" autocomplete="off">
+    <input id="q" type="search" dir="auto" placeholder="Song name, YouTube or Spotify link" enterkeyhint="search">
+    <button type="submit">Add</button>
+  </form>
+  <div id="msg" role="status"></div>
+  <ul id="results"></ul>
+</section>
+
+<section class="card">
+  <div class="label">Queue</div>
+  <ul id="queue"></ul>
+  <p id="queue-empty" class="muted">Queue is empty</p>
+</section>
+
+<details class="card" id="paste-box">
+  <summary>Lyrics wrong or missing? Paste them</summary>
+  <form id="paste-form">
+    <select id="paste-song" aria-label="Song"></select>
+    <textarea id="paste-text" dir="auto" rows="8" placeholder="Paste the lyrics (plain text or LRC). They'll be synced to the singer automatically."></textarea>
+    <button type="submit">Sync these lyrics</button>
+  </form>
+  <div id="paste-msg" role="status" class="muted"></div>
+</details>
+
+<details class="card" id="library-box">
+  <summary>Ready to sing (already processed)</summary>
+  <ul id="library"></ul>
+</details>
+
+<script type="module" src="/static/remote.js"></script>
+</body>
+</html>
