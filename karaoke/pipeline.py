@@ -52,6 +52,7 @@ def process(video_id: str, cache: Cache, status: StatusFn | None = None, mode: s
         "vocal_start": res.vocal_start,
         "vocal_end": res.vocal_end,
         "separator": mode,
+        "separator_model": media.SEPARATORS[mode][0],
         "timings": timings,
     }
     cache.commit(video_id, meta)
@@ -73,5 +74,35 @@ def replace_lyrics(video_id: str, cache: Cache, text: str) -> dict:
         raise ValueError("no lyric lines in the pasted text")
     engine.write_lyrics(res, d)
     meta.update(lyrics_mode=res.mode, lyrics_source="pasted", lyrics_offset=res.offset, align_prob=res.align_prob)
+    write_meta(d, meta)
+    return meta
+
+
+def restem(video_id: str, cache: Cache, mode: str = "quality") -> dict:
+    """Redo a cached song's stems with the current separator; keep its video and lyrics.
+
+    New stems are made in a scratch dir and swapped in, meta.json is rewritten last.
+    """
+    import shutil
+
+    from . import vocals
+    from .cache import write_meta
+
+    d = cache.song_dir(video_id)
+    if not cache.is_complete(video_id):
+        raise FileNotFoundError(f"{video_id} is not a complete cached song")
+    work = d / ".restem"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir()
+    t = time.time()
+    media.extract_audio(d / "video.mp4", work / "audio.wav")
+    media.separate(work / "audio.wav", work, mode)
+    for stem in ("instrumental.flac", "vocals.flac"):
+        (work / stem).replace(d / stem)
+    shutil.rmtree(work, ignore_errors=True)
+    meta = cache.read_meta(video_id)
+    v_start, v_end = vocals.onsets(vocals.load_activity(d / "vocals.flac"))
+    meta.update(separator=mode, separator_model=media.SEPARATORS[mode][0], vocal_start=v_start, vocal_end=v_end)
+    meta.setdefault("timings", {})["separate"] = round(time.time() - t, 1)
     write_meta(d, meta)
     return meta

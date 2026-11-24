@@ -15,15 +15,16 @@ uv run python -m karaoke.server            # http://<this-machine>:8765
 
 1. On the machine connected to the TV, open `http://localhost:8765/tv` full screen and tap **Tap to start**.
 2. Guests scan the QR code (or open `/remote`), search for a song, and tap the right result.
-3. The first song takes about 3–4 minutes to prepare; later songs are prepared while the current one plays.
+3. The first song takes about 2–3 minutes to prepare; later songs are prepared while the current one plays.
 
-Options: `--fast` (vocal removal in ~35s instead of ~2.5min, lower quality), `--host-ip 192.168.1.20`
+Options: `--fast` (vocal removal in ~35s instead of ~1.5min, lower quality), `--host-ip 192.168.1.20`
 (the address in the QR code, if auto-detection picks the wrong network), `--port`.
 
 Process a single song without the server:
 
 ```bash
 uv run python process_song.py "olivia rodrigo vampire"
+uv run python process_song.py --restem-all   # redo vocal removal for every cached song
 ```
 
 ## How lyrics are found

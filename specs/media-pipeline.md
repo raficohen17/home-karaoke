@@ -34,7 +34,10 @@ The pipeline downloads video capped at 720p H.264 with audio
 The audio is split into `instrumental.flac` and `vocals.flac` with the same sample rate and the same
 sample count (D-media-pipeline-2).
 
-- WHEN separation finishes THEN both stems have equal sample counts (the longer is trimmed).
+- WHEN separation finishes THEN both stems have equal sample counts and instrumental + vocals
+  reproduce the original mix's balance (D-media-pipeline-5).
+- WHEN `process_song.py --restem-all` runs THEN every cached song's stems are redone with the current
+  separator, keeping its video and lyrics.
 - WHEN the server runs with `--fast` THEN MDX-Net is used instead of BS-RoFormer (D-media-pipeline-1).
 
 ### Atomic cache
@@ -54,15 +57,22 @@ so the app works behind TLS-inspecting proxies.
 
 ## Design notes
 
-- **D-media-pipeline-1 — BS-RoFormer (overlap 2, fp16) by default, MDX-Net with `--fast`.** Measured on
-  a 60s clip on an M4 Pro (MPS), vocals SDR against full-overlap BS-RoFormer: RoFormer overlap 2 41s,
-  23.5 dB; MDX-Net Inst HQ 3 8s, 14.7 dB; htdemucs 6s, 10.8 dB and four stems instead of two;
-  RoFormer default overlap 8 ≈100s. Quality wins by default because songs are prepared while the
-  previous one plays. Rejects htdemucs and full-overlap RoFormer.
+- **D-media-pipeline-1 — Mel-Band RoFormer Kim FT2 "bleedless" (overlap 2) by default, MDX-Net with
+  `--fast`.** Chosen after a guest heard the electric guitars vanish with the vocal guide down on
+  "vampire". On its guitar bridge (60s, M4 Pro), the share of a reference guitar track (htdemucs_6s)
+  landing in the vocal stem: Kim FT2 bleedless 23% (22% on the full song), BS-RoFormer ep317 27%,
+  Mel-Band instrumental v7 21% but voice left in the instrumental −18.3 dB vs −21.6 dB (Kim) and
+  −23.8 dB (BS-RoFormer). Kim FT2 is also 2× faster (20s vs 43s per minute of audio; ~90s per
+  song). fp16 autocast changed nothing measurable. Rejects BS-RoFormer ep317 (more guitar bleed,
+  slower), instrumental-first models (more voice left), htdemucs (lowest quality, four stems).
 - **D-media-pipeline-2 — FLAC stems, not MP3.** MP3 encoder delay/padding differs between decoders and
   breaks sample alignment between the stems; FLAC decodes to the same sample count in every browser.
   Rejects MP3 with a timing tolerance.
 - **D-media-pipeline-3 — Spotify metadata from Open Graph tags.** oEmbed doesn't reliably carry the
   artist and the Web API needs credentials. Rejects oEmbed-only and a Spotify developer app.
+- **D-media-pipeline-5 — Stems are rebalanced against the mix.** audio-separator peak-normalised each
+  stem on its own (instrumental ×1/1.19, vocals ×1/1.11 on "vampire"), shifting the band/voice
+  balance. Normalisation is off; one least-squares gain per stem makes instrumental + vocals match
+  the mix, and if that would clip, both stems share one reduction so the balance holds.
 - **D-media-pipeline-4 — OS trust store via `truststore`.** certifi rejects proxy-issued certificates
   that curl and browsers accept. Rejects disabling certificate checks.

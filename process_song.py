@@ -14,13 +14,25 @@ from karaoke.tls import use_system_trust
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("input")
+    ap.add_argument("input", nargs="?", help="omit with --restem-all")
+    ap.add_argument("--restem-all", action="store_true", help="redo stems of every cached song (keeps lyrics)")
     ap.add_argument("--cache", default="cache")
     ap.add_argument("--fast", action="store_true")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     use_system_trust()
     t = time.time()
+    if args.restem_all:
+        from karaoke.pipeline import restem
+
+        cache = Cache(args.cache)
+        for vid in cache.list_complete():
+            m = restem(vid, cache, "fast" if args.fast else "quality")
+            print(f"{vid}: {m['separator_model']} in {m['timings']['separate']}s — {m['title']}", flush=True)
+        print(f"total {time.time() - t:.0f}s")
+        return
+    if not args.input:
+        ap.error("input is required unless --restem-all")
     vid = resolver.resolve(args.input)
     print(f"resolved -> {vid}")
     meta = process(vid, Cache(args.cache), status=lambda s, p=None: print(f"  {s}" + (f" {p:.0%}" if p else "")), mode="fast" if args.fast else "quality")
