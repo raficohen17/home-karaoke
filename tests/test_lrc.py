@@ -29,7 +29,16 @@ def test_shift_clamps_at_zero():
 
 
 def test_plain_lines_drops_labels_and_blanks():
-    assert plain_lines("[Chorus]\nline one\n\n(Verse 2)\n  line two  ") == ["line one", "line two"]
+    assert plain_lines("[Chorus]\nline one\n\n(Verse 2)\n(x2)\n(פזמון)\n  line two  ") == ["line one", "line two"]
+
+
+def test_plain_lines_drops_shironet_headers():
+    text = "בית א:\nשורה ראשונה\nפזמון:\nפזמון x2:\nבית ב':\nChorus:\nבית שלי: שורה"
+    assert plain_lines(text) == ["שורה ראשונה", "בית שלי: שורה"]
+
+
+def test_plain_lines_keeps_sung_parentheticals():
+    assert plain_lines("(מיליון דולר)\n(לא לא לא)\n(Ooh, yeah)") == ["(מיליון דולר)", "(לא לא לא)", "(Ooh, yeah)"]
 
 
 def test_map_words_to_lines():

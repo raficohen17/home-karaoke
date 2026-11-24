@@ -11,7 +11,7 @@ from .lrc import Line
 
 log = logging.getLogger(__name__)
 
-ALIGN_TIMEOUT = 180.0
+ALIGN_TIMEOUT = 300.0
 MIN_ALIGN_PROB = 0.5
 MAX_OFFSET = 30.0
 ALIGNED_LEAD = 0.3  # aligned line starts run ~0.3-0.5s late vs hand-synced LRC (vampire); show lines early
@@ -64,7 +64,7 @@ def build_lyrics(meta: dict, vocals_path: Path, progress=None) -> LyricsResult:
     name = sources.song_name_from_youtube(meta.get("title", ""), meta.get("channel", ""), meta.get("track"), meta.get("artist"))
     act = vocals.load_activity(vocals_path)
     v_start, v_end = vocals.onsets(act)
-    language = guess_language(meta.get("title", ""), meta.get("channel", ""), name.artist) or align.detect_language(vocals_path)
+    language = guess_language(meta.get("title", ""), meta.get("channel", ""), name.artist) or align.detect_language(vocals_path, v_start, v_end)
     res = LyricsResult(mode="none", vocal_start=v_start, vocal_end=v_end, language=language, artist=name.artist, title=name.title)
     log.info("lyrics for %s / %s (%s)", name.artist, name.title, language)
 

@@ -123,3 +123,12 @@ def test_write_lyrics_replaces_previous_format(tmp_path):
     (tmp_path / "lyrics.lrc").write_text("[00:01.00]old")
     engine.write_lyrics(engine.LyricsResult(mode="teleprompter", text="new"), tmp_path)
     assert not (tmp_path / "lyrics.lrc").exists() and (tmp_path / "lyrics.txt").read_text() == "new"
+
+
+def test_vote_language():
+    from karaoke.align import vote_language
+    # first window fooled by an English ad-lib; the song is Hebrew
+    w = [[("en", 0.61), ("he", 0.05)], [("he", 0.73), ("en", 0.21)], [("he", 0.61), ("en", 0.32)]]
+    assert vote_language(w) == "he"
+    assert vote_language([[("en", 0.9)], [("en", 0.8), ("he", 0.1)]]) == "en"
+    assert vote_language([]) == "en"

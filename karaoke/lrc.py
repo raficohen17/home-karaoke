@@ -47,12 +47,32 @@ def shift(lines: list[Line], offset: float) -> list[Line]:
     return [Line(max(0.0, line.t + offset), line.text) for line in lines]
 
 
+_LABEL = re.compile(
+    r"(?:pre-?chorus|chorus|verse|bridge|intro|outro|hook|refrain|interlude|instrumental|"
+    r"פזמון|בית|גשר|פתיחה|סיום)[\s\d:.-]*(?:x\s*\d+)?|x\s*\d+|\d+\s*x",
+    re.I,
+)
+
+
+_HEADER = re.compile(
+    r"(?:pre-?chorus|chorus|verse|bridge|intro|outro|hook|refrain|פזמון|בית|גשר|פתיחה|סיום|מעבר)"
+    r"(?:\s*[\dא-ת]['׳]?)?\s*(?:x\s*\d+|\d+\s*x)?\s*:",
+    re.I,
+)
+
+
 def plain_lines(text: str) -> list[str]:
-    """Non-empty lyric lines from plain text, without section labels like [Chorus]."""
+    """Non-empty lyric lines from plain text. Drops [anything] and (section labels) such as
+    (Chorus) or (x2), but keeps sung parentheticals like "(מיליון דולר)"."""
     out = []
     for raw in text.splitlines():
         s = raw.strip()
-        if not s or re.fullmatch(r"[\[(].*[\])]", s):
+        if not s or re.fullmatch(r"\[.*\]", s):
+            continue
+        m = re.fullmatch(r"\((.*)\)", s)
+        if m and _LABEL.fullmatch(m.group(1).strip()):
+            continue
+        if _HEADER.fullmatch(s):  # Shironet-style "בית א:", "פזמון:", "Chorus:"
             continue
         out.append(s)
     return out

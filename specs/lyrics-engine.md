@@ -33,7 +33,7 @@ vocals. Playback never waits on lyrics after `READY`.
 - WHEN no synced lyrics fit THEN plain text from LRCLIB (any duration) or, for `he`, Shironet is aligned
   to `vocals.flac` with stable-ts; lines start 0.3s before their first aligned word
   (D-lyrics-engine-3); `lyrics_mode` is `aligned`.
-- WHEN alignment raises, runs past 180s, or its mean word probability is below 0.5 THEN the text is
+- WHEN alignment raises, runs past 300s, or its mean word probability is below 0.5 THEN the text is
   written to `lyrics.txt` and `lyrics_mode` is `teleprompter`.
 - WHEN no lyrics text is found THEN Whisper transcribes the vocal stem into timed lines and
   `lyrics_mode` is `transcribed`.
@@ -56,7 +56,7 @@ A guest can replace a ready song's lyrics from `/remote`.
   for the album recording; music videos add intros. The offset (±30s, 0.1s steps) maximises overlap
   between lyric lines and vocal activity minus a penalty for lyrics over silence. Rejects using LRCLIB
   timestamps as they are.
-- **D-lyrics-engine-2 — stable-ts on faster-whisper (CPU, int8):** `ivrit-ai/whisper-large-v3-turbo-ct2`
+- **D-lyrics-engine-2 — stable-ts on faster-whisper (CPU, int8, cores − 4 threads):** `ivrit-ai/whisper-large-v3-turbo-ct2`
   for Hebrew, `large-v3-turbo` for English. Rejects openai-whisper large-v3 on MPS (uneven support).
 - **D-lyrics-engine-3 — Aligned lines lead by 0.3s.** On "vampire", aligned line starts ran a median
   0.46s later than the hand-synced LRCLIB times (mean word probability 0.82).

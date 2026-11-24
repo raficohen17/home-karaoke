@@ -112,3 +112,29 @@ def test_shironet_lyrics():
 def test_similarity_bounds():
     assert similarity("vampire", "Vampire") == 1.0
     assert similarity("vampire", "drivers license") < 0.5
+
+
+def test_shironet_artist_and_works_parsing():
+    from karaoke.sources import parse_shironet_artists, parse_shironet_works, pick_artist, pick_work
+
+    artists = parse_shironet_artists((FIX / "shironet_artist_search.html").read_text())
+    assert artists[0] == ("נועה קירל", "18493") and len(artists) == 2  # duplicates collapsed
+    name = SongName("נועה קירל", "או לה פופה", ("Noa Kirel",))
+    assert pick_artist(artists, name) == "18493"
+    assert pick_artist(artists, SongName("עומר אדם", "x")) is None
+    songs, pages = parse_shironet_works((FIX / "shironet_works.html").read_text())
+    assert songs[0].title == "Thought About That" and pages == ["/artist?lang=1&prfid=18493&type=works&page=2"]
+    assert pick_work(songs, name).href.endswith("wrkid=65705")
+    assert pick_work(songs, SongName("נועה קירל", "שיר שלא קיים")) is None
+
+
+def test_shironet_works_pages_sort_numerically():
+    from karaoke.sources import parse_shironet_works
+
+    html = "".join(f'<a href="/artist?lang=1&prfid=1&type=works&page={n}">{n}</a>' for n in (10, 2, 3))
+    assert [p[-2:].strip("=") for p in parse_shironet_works(html)[1]] == ["2", "3", "10"]
+
+
+def test_song_name_medley_parts_are_aliases():
+    n = song_name_from_youtube("עומר אדם - תגידו לה & אהבה מטורפת", "Omer Adam")
+    assert "תגידו לה" in n.titles() and "אהבה מטורפת" in n.titles()

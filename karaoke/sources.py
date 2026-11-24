@@ -100,6 +100,8 @@ def song_name_from_youtube(title: str, channel: str, track: str | None = None, a
         if m:
             alt_titles.append(m.group(1).strip())
             cleaned = cleaned[: m.start()].strip()
+    if "&" in cleaned:  # medley: "song A & song B" -> try each song too
+        alt_titles += [x.strip() for x in cleaned.split("&") if x.strip()]
     alt_artists = [channel_artist, tail.strip()]
     if track and artist:
         alt_titles.insert(0, cleaned)
@@ -154,6 +156,10 @@ def lrclib_queries(name: SongName, limit: int = 6) -> list[dict]:
 def fetch_lrclib(name: SongName, duration: float | None = None) -> list[LrclibHit]:
     """Collect hits across aliases; stop once a synced hit fits the duration."""
     import httpx
+
+    from .tls import use_system_trust
+
+    use_system_trust()
 
     hits: list[LrclibHit] = []
     with httpx.Client(timeout=20, headers={"User-Agent": "home-karaoke/0.1"}) as c:
@@ -212,8 +218,52 @@ def choose_shironet(results: list[ShironetResult], name: SongName) -> ShironetRe
     return max(scored, key=lambda x: x[0])[1] if scored else None
 
 
+def parse_shironet_artists(html: str) -> list[tuple[str, str]]:
+    """[(artist name, prfid)] from a Shironet search page, in page order, unique."""
+    soup = BeautifulSoup(html, "html.parser")
+    out, seen = [], set()
+    for a in soup.select("a.search_link_name_big"):
+        m = re.fullmatch(r"/artist\?lang=1&prfid=(\d+)", a.get("href", ""))
+        if m and m.group(1) not in seen:
+            seen.add(m.group(1))
+            out.append((a.get_text(" ", strip=True), m.group(1)))
+    return out
+
+
+def parse_shironet_works(html: str) -> tuple[list[ShironetResult], list[str]]:
+    """(songs on an artist's works page, links to further pages)."""
+    soup = BeautifulSoup(html, "html.parser")
+    songs = [
+        ShironetResult(a.get_text(" ", strip=True), "", a["href"])
+        for a in soup.select("a.artist_player_songlist")
+        if "wrkid=" in a.get("href", "")
+    ]
+    hrefs = {a["href"] for a in soup.select('a[href*="type=works&page="]')}
+    pages = sorted(hrefs, key=lambda h: int(re.search(r"page=(\d+)", h).group(1)))
+    return songs, pages
+
+
+def pick_artist(artists: list[tuple[str, str]], name: SongName) -> str | None:
+    """prfid of the best-matching artist (≥0.8 similarity to any alias)."""
+    best = max(
+        ((max(similarity(n, a) for a in name.artists()), pid) for n, pid in artists),
+        default=(0.0, None),
+    )
+    return best[1] if best[0] >= 0.8 else None
+
+
+def pick_work(songs: list[ShironetResult], name: SongName) -> ShironetResult | None:
+    scored = [(max(similarity(s.title, t) for t in name.titles()), s) for s in songs]
+    best = max(scored, key=lambda x: x[0], default=(0.0, None))
+    return best[1] if best[0] >= 0.8 else None
+
+
 def fetch_shironet(name: SongName) -> str | None:
     import httpx
+
+    from .tls import use_system_trust
+
+    use_system_trust()
 
     base = "https://shironet.mako.co.il"
     headers = {"User-Agent": UA, "Accept": "text/html", "Accept-Language": "he,en;q=0.8"}
@@ -226,4 +276,24 @@ def fetch_shironet(name: SongName) -> str | None:
             if hit:
                 page = c.get(base + hit.href)
                 return parse_shironet_lyrics(page.text) if page.status_code == 200 else None
+        # Search is loose full-text; fall back to the artist's own song list.
+        r = c.get(f"{base}/search", params={"q": name.artist})
+        prfid = pick_artist(parse_shironet_artists(r.text), name) if r.status_code == 200 else None
+        if not prfid:
+            return None
+        url, seen = f"{base}/artist?type=works&lang=1&prfid={prfid}", set()
+        for _ in range(15):  # at most 15 pages (~45 songs each)
+            seen.add(url)
+            page = c.get(url)
+            if page.status_code != 200:
+                return None
+            songs, pages = parse_shironet_works(page.text)
+            work = pick_work(songs, name)
+            if work:
+                lyr = c.get(base + work.href)
+                return parse_shironet_lyrics(lyr.text) if lyr.status_code == 200 else None
+            nxt = [base + p for p in pages if base + p not in seen]
+            if not nxt:
+                return None
+            url = nxt[0]
     return None

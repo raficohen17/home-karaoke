@@ -13,7 +13,7 @@ Run: `uv run python -m karaoke.server` (Milestone 3) or `uv run python process_s
 - Release: none. The product runs from a local checkout; "released" means `master` at a
   tagged commit, started on the TV machine.
 - Person acts:
-  - `tv-sitting` — the owner, at the TV machine with the TV on and a phone on the same
+  - `tv-sitting` — Raphael, at the TV machine with the TV on and a phone on the same
     Wi-Fi: start the server, open `/tv`, tap to start audio, scan the QR code. Per-sitting.
 
 ## Rules
