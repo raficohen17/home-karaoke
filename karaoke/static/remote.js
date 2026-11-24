@@ -112,7 +112,11 @@ function connect() {
     if (m.type === "state") render(m);
     else if (m.type === "vocal" && Date.now() > sliderBusyUntil) { $("vocal").value = Math.round(m.level * 100); $("vocal-out").textContent = $("vocal").value + "%"; }
   };
-  ws.onclose = () => { $("tv-status").textContent = "Reconnecting…"; setTimeout(connect, 1000); };
+  ws.onclose = (ev) => {
+    if (ev.code === 1008) { $("tv-status").textContent = "Scan the QR code on the TV to join"; return; } // no access
+    $("tv-status").textContent = "Reconnecting…";
+    setTimeout(connect, 1000);
+  };
 }
 connect();
 loadLibrary();

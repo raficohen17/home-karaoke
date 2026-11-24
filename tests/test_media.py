@@ -44,12 +44,12 @@ def test_restem_swaps_stems_and_keeps_lyrics(tmp_path, monkeypatch):
     from karaoke.cache import REQUIRED_FILES, Cache
 
     c = Cache(tmp_path)
-    work = c.begin("vid")
+    work = c.begin("vid_0000000")
     for f in REQUIRED_FILES:
         if f != "meta.json":
             (work / f).write_bytes(b"old")
     (work / "lyrics.lrc").write_text("[00:01.00]keep me")
-    c.commit("vid", {"title": "t", "lyrics_mode": "synced", "timings": {}})
+    c.commit("vid_0000000", {"title": "t", "lyrics_mode": "synced", "timings": {}})
 
     def fake_extract(video, wav):
         sf.write(str(wav), _sig(44100), 44100)
@@ -60,9 +60,9 @@ def test_restem_swaps_stems_and_keeps_lyrics(tmp_path, monkeypatch):
 
     monkeypatch.setattr(media, "extract_audio", fake_extract)
     monkeypatch.setattr(media, "separate", fake_separate)
-    meta = pipeline.restem("vid", c)
-    d = c.song_dir("vid")
+    meta = pipeline.restem("vid_0000000", c)
+    d = c.song_dir("vid_0000000")
     assert sf.info(str(d / "vocals.flac")).frames == 44100
     assert (d / "lyrics.lrc").read_text() == "[00:01.00]keep me"
     assert meta["lyrics_mode"] == "synced" and meta["separator_model"] == media.SEPARATORS["quality"][0]
-    assert c.is_complete("vid") and not (d / ".restem").exists()
+    assert c.is_complete("vid_0000000") and not (d / ".restem").exists()

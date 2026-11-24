@@ -6,6 +6,8 @@ import os
 import shutil
 from pathlib import Path
 
+from .security import require_video_id
+
 REQUIRED_FILES = ("video.mp4", "instrumental.flac", "vocals.flac", "meta.json")
 STAGING = ".staging"
 OWNER = ".owner_pid"
@@ -16,10 +18,10 @@ class Cache:
         self.root = Path(root)
 
     def song_dir(self, video_id: str) -> Path:
-        return self.root / video_id
+        return self.root / require_video_id(video_id)
 
     def staging_dir(self, video_id: str) -> Path:
-        return self.root / STAGING / video_id
+        return self.root / STAGING / require_video_id(video_id)
 
     def is_complete(self, video_id: str) -> bool:
         return is_complete_dir(self.song_dir(video_id))

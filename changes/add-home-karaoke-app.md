@@ -45,7 +45,8 @@ Changed from the plan while building:
 - D6 → D-lyrics-engine-1 in specs/lyrics-engine.md
 - D7 → D-party-queue-1 in specs/party-queue.md
 - D8 Sequencing: CLI engine (M1), then player (M2), then party mode (M3). Governs the work only.
-- D9 → D-party-queue-2 in specs/party-queue.md
+- D9 → overridden by D-party-queue-3 in specs/party-queue.md (party key in the QR code; red team
+  2026-11-24 found path traversal and socket hijacking with open access)
 - D10 → D-lyrics-engine-4 in specs/lyrics-engine.md (no Genius)
 - D11 → D-media-pipeline-4 in specs/media-pipeline.md (OS trust store)
 

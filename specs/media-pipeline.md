@@ -38,7 +38,7 @@ sample count (D-media-pipeline-2).
   reproduce the original mix's balance (D-media-pipeline-5).
 - WHEN `process_song.py --restem-all` runs THEN every cached song's stems are redone with the current
   separator, keeping its video and lyrics.
-- WHEN the server runs with `--fast` THEN MDX-Net is used instead of BS-RoFormer (D-media-pipeline-1).
+- WHEN the server runs with `--fast` THEN MDX-Net is used instead of the Mel-Band RoFormer (D-media-pipeline-1).
 
 ### Atomic cache
 

@@ -47,4 +47,11 @@ node --test tests/js/
 node check-layout.mjs
 ```
 
+## Safety
+
+The server prints a TV link and a guest link on start. Guests join only through the QR code (it carries
+a random key that changes every run); other devices on the network, VPN peers and websites can't
+control the party. The TV is this computer, or any device opened with the printed TV link. Song ids,
+messages and uploads are validated and rate-limited; see `specs/party-queue.md` → "Access and safety".
+
 Personal use only: downloading from YouTube may break its terms of service.

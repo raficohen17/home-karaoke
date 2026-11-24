@@ -16,26 +16,26 @@ def _fill(d):
 
 def test_cache_commit_is_atomic(tmp_path):
     c = Cache(tmp_path)
-    work = c.begin("abc")
+    work = c.begin("abcdefghijk")
     _fill(work)
-    assert not c.is_complete("abc")
-    c.commit("abc", {"title": "t"})
-    assert c.is_complete("abc")
-    assert c.read_meta("abc")["status"] == "complete"
+    assert not c.is_complete("abcdefghijk")
+    c.commit("abcdefghijk", {"title": "t"})
+    assert c.is_complete("abcdefghijk")
+    assert c.read_meta("abcdefghijk")["status"] == "complete"
     assert not work.exists()
-    assert c.list_complete() == ["abc"]
+    assert c.list_complete() == ["abcdefghijk"]
 
 
 def test_cache_commit_refuses_missing_files(tmp_path):
     c = Cache(tmp_path)
-    c.begin("abc")
+    c.begin("abcdefghijk")
     with pytest.raises(RuntimeError):
-        c.commit("abc", {})
-    assert not c.is_complete("abc")
+        c.commit("abcdefghijk", {})
+    assert not c.is_complete("abcdefghijk")
 
 
 def test_incomplete_meta_is_not_a_hit(tmp_path):
-    d = tmp_path / "abc"
+    d = tmp_path / "abcdefghijk"
     d.mkdir()
     _fill(d)
     (d / "meta.json").write_text(json.dumps({"status": "partial"}))
@@ -46,10 +46,10 @@ def test_incomplete_meta_is_not_a_hit(tmp_path):
 
 def test_begin_discards_previous_partial(tmp_path):
     c = Cache(tmp_path)
-    (c.begin("abc") / "junk").write_text("x")
-    assert not (c.begin("abc") / "junk").exists()
+    (c.begin("abcdefghijk") / "junk").write_text("x")
+    assert not (c.begin("abcdefghijk") / "junk").exists()
     c.clear_staging()
-    assert not (tmp_path / ".staging" / "abc").exists()
+    assert not (tmp_path / ".staging" / "abcdefghijk").exists()
 
 
 def test_clear_staging_keeps_work_of_a_live_process(tmp_path):

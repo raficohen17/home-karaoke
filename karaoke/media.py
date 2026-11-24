@@ -25,6 +25,19 @@ class DownloadError(Exception):
     pass
 
 
+class TooLong(DownloadError):
+    """Longer than MAX_VIDEO_SECONDS, or a live stream."""
+
+
+def check_length(info: dict, limit: int) -> None:
+    """Raise TooLong for live streams and videos over `limit` seconds (unknown length counts as live)."""
+    if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
+        raise TooLong("live stream")
+    duration = info.get("duration")
+    if not duration or duration > limit:
+        raise TooLong(f"duration {duration}")
+
+
 def download(video_id: str, out_dir: Path, progress=None) -> dict:
     """Download video.mp4 (720p H.264, with audio) and audio.wav. Return yt-dlp info subset."""
     import yt_dlp
@@ -48,9 +61,13 @@ def download(video_id: str, out_dir: Path, progress=None) -> dict:
         "progress_hooks": [hook],
         "noplaylist": True,
     }
+    from .security import MAX_VIDEO_SECONDS, require_video_id
+
+    url = f"https://www.youtube.com/watch?v={require_video_id(video_id)}"
     try:
         with yt_dlp.YoutubeDL(opts) as y:
-            info = y.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=True)
+            check_length(y.extract_info(url, download=False), MAX_VIDEO_SECONDS)  # before any download
+            info = y.extract_info(url, download=True)
     except yt_dlp.utils.DownloadError as e:
         raise DownloadError(str(e).replace("ERROR: ", "")) from e
     video = out_dir / "video.mp4"
