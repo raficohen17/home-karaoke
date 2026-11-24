@@ -43,6 +43,7 @@ class Hub:
         self.party = Party()
         self.sockets: dict[WebSocket, str] = {}
         self.wake = asyncio.Event()
+        self.active_tv: WebSocket | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
 
     async def broadcast(self, msg: dict | None = None) -> None:
@@ -52,6 +53,15 @@ class Hub:
                 await ws.send_text(payload)
             except Exception:
                 self.sockets.pop(ws, None)
+
+    async def standby_others(self, active: WebSocket) -> None:
+        payload = json.dumps({"type": "standby"})
+        for ws, role in list(self.sockets.items()):
+            if role == "tv" and ws is not active:
+                try:
+                    await ws.send_text(payload)
+                except Exception:
+                    self.sockets.pop(ws, None)
 
     async def to_tv(self, msg: dict) -> None:
         payload = json.dumps(msg)
@@ -131,6 +141,9 @@ class Hub:
             return  # position reports are not re-broadcast
         elif t == "audio_ready":
             p.audio_ready = bool(msg.get("ready"))
+            if p.audio_ready:  # the TV that was tapped last plays; any other TV goes silent
+                self.active_tv = ws
+                await self.standby_others(ws)
         await self.broadcast()
 
 
@@ -240,7 +253,8 @@ def create_app(cache_dir: str = "cache", host_ip: str | None = None, port: int =
             pass
         finally:
             hub.sockets.pop(ws, None)
-            if role == "tv" and "tv" not in hub.sockets.values():
+            if role == "tv" and hub.active_tv is ws:
+                hub.active_tv = None
                 hub.party.audio_ready = False
                 await hub.broadcast()
 

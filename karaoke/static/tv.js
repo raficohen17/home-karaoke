@@ -19,6 +19,7 @@ let lineEls = [], lastActive = -2;
 let prompter = { px: 0, rate: 0, lastT: 0 };
 let loadingVid = null;
 let lastReport = 0;
+let active = false; // this screen plays audio only after a tap, and only while no other TV took over
 
 // ---------- audio ----------
 function position() {
@@ -52,9 +53,9 @@ function pause() {
   report(true);
 }
 
-function resume() { if (song && !playing) startAt(offset); }
+function resume() { if (active && song && !playing) startAt(offset); }
 
-function seekBy(delta) { if (song) { const p = Math.max(0, Math.min(song.inst.duration - 1, position() + delta)); playing ? startAt(p) : (offset = p); } }
+function seekBy(delta) { if (song) { const p = Math.max(0, Math.min(song.inst.duration - 1, position() + delta)); playing && active ? startAt(p) : (offset = p); } }
 
 function setVocal(level, fromServer) {
   vocalGain.gain.setTargetAtTime(sliderToGain(level * 100), ctx.currentTime, 0.05 / 3);
@@ -90,7 +91,7 @@ async function loadSong(vid, resumeAt = 0) {
   renderSong();
   $("loading").hidden = true;
   document.body.classList.add("playing");
-  if (ctx.state === "running" && !state.paused) startAt(resumeAt);
+  if (active && ctx.state === "running" && !state.paused) startAt(resumeAt);
   else offset = resumeAt;
 }
 
@@ -187,7 +188,7 @@ function tick() {
 
 function report(force) {
   const now = performance.now();
-  if (!song || (!force && now - lastReport < 1000)) return;
+  if (!active || !song || (!force && now - lastReport < 1000)) return; // only the playing screen reports
   lastReport = now;
   send({ type: "position", video_id: song.vid, t: position(), paused: !playing });
 }
@@ -212,11 +213,12 @@ function showError(e) { console.error(e); $("loading").textContent = "Failed to 
 
 function connect() {
   ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws?role=tv`);
-  ws.onopen = () => send({ type: "audio_ready", ready: ctx.state === "running" });
+  ws.onopen = () => { if (active) send({ type: "audio_ready", ready: true }); };
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.type === "state") onState(m);
     else if (m.type === "vocal") setVocal(m.level, true);
+    else if (m.type === "standby") standby();
     else if (m.type === "pause") pause();
     else if (m.type === "resume") resume();
     else if (m.type === "seek") seekBy(m.delta);
@@ -226,8 +228,18 @@ function connect() {
 }
 
 // ---------- UI ----------
+function standby() {
+  // Another TV screen was tapped: go silent here so the song never plays from two places.
+  active = false;
+  if (playing) { offset = position(); playing = false; stopSources(); video.pause(); }
+  document.body.classList.remove("unlocked");
+  $("unlock-btn").textContent = "Play on this screen";
+  $("unlock-note").textContent = "The song is playing on another screen.";
+}
+
 $("unlock-btn").onclick = async () => {
   await ctx.resume();
+  active = true;
   document.body.classList.add("unlocked");
   send({ type: "audio_ready", ready: true });
   if (song && !playing && !state.paused) startAt(offset);

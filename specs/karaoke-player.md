@@ -10,7 +10,15 @@ tested with `node --test tests/js/`).
 `/tv` starts behind a full-screen "Tap to start" that resumes the `AudioContext`; later songs start
 without a gesture.
 
-- WHEN `/tv` loads THEN it shows "Tap to start" until tapped, and `/remote` shows "TV needs a tap".
+- WHEN `/tv` loads THEN it shows "Tap to start" until tapped, plays nothing before the tap (even
+  where the browser allows autoplay), and `/remote` shows "TV needs a tap".
+
+### One playing screen
+
+- WHEN a second `/tv` is tapped THEN every other `/tv` stops its audio and shows "Play on this
+  screen", so the song never plays from two places; the tapped screen continues from the song's
+  current position.
+- Only the playing screen reports position and pause state to the server.
 
 ### Dual-stem playback
 
