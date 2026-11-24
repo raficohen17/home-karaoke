@@ -220,7 +220,10 @@ def create_app(
             return JSONResponse({"detail": "Scan the QR code on the TV to join"}, status_code=403)
         if role != "tv" and path in TV_ONLY:
             return JSONResponse({"detail": "TV only"}, status_code=403)
-        return await call_next(request)
+        resp = await call_next(request)
+        if path.startswith("/media/"):
+            resp.headers["Cache-Control"] = "no-cache"  # always revalidate (ETag), never trust a stale stem
+        return resp
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     app.mount("/media", StaticFiles(directory=cache.root), name="media")

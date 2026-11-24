@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  parseLrc, activeIndex, songPosition, driftAction, teleprompterRate, teleprompterOffset, sliderToGain,
+  parseLrc, parseWords, wordsSung, activeIndex, songPosition, driftAction, teleprompterRate, teleprompterOffset, sliderToGain,
 } from "../../karaoke/static/core.js";
 
 test("parseLrc handles metadata, repeats and hebrew", () => {
@@ -44,4 +44,19 @@ test("sliderToGain", () => {
   assert.equal(sliderToGain(100), 1);
   assert.equal(sliderToGain(50), 0.25);
   assert.equal(sliderToGain(150), 1);
+});
+
+test("parseLrc reads per-word times (enhanced LRC)", () => {
+  const [l] = parseLrc("[00:01.00]<00:01.00>אני <00:01.40>פנתרה");
+  assert.equal(l.text, "אני פנתרה");
+  assert.deepEqual(l.words, [{ t: 1, w: "אני" }, { t: 1.4, w: "פנתרה" }]);
+  assert.deepEqual(parseWords("plain line"), { text: "plain line", words: [] });
+});
+
+test("wordsSung", () => {
+  const w = [{ t: 1 }, { t: 1.5 }, { t: 2 }];
+  assert.equal(wordsSung(w, 0.5), 0);
+  assert.equal(wordsSung(w, 1.5), 2);
+  assert.equal(wordsSung(w, 9), 3);
+  assert.equal(wordsSung([], 9), 0);
 });

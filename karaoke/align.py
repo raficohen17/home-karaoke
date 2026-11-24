@@ -24,21 +24,35 @@ def _model(language: str):
         return stable_whisper.load_faster_whisper(name, device="cpu", compute_type="int8", cpu_threads=CPU_THREADS)
 
 
-def align_words(vocals: Path, text: str, language: str) -> tuple[list[tuple[float, str]], float]:
-    """Align text to the vocal stem. Return ([(start, word)], mean word probability)."""
+def align_words(vocals: Path, text: str, language: str) -> tuple[list[tuple[float, str, float]], float]:
+    """Align text to the vocal stem. Return ([(start, word, probability)], mean word probability)."""
     model = _model(language)
     result = model.align(str(vocals), text, language=language)
-    words = [(float(w.start), w.word.strip()) for w in result.all_words() if w.word.strip()]
-    probs = [w.probability for w in result.all_words() if w.probability is not None]
+    words = [
+        (float(w.start), w.word.strip(), float(w.probability or 0.0))
+        for w in result.all_words()
+        if w.word.strip()
+    ]
+    probs = [p for _, _, p in words]
     return words, (sum(probs) / len(probs) if probs else 0.0)
 
 
-def transcribe_lines(vocals: Path, language: str) -> list[tuple[float, str]]:
-    """Transcribe the vocal stem into (start, line) pairs, one per segment."""
+def transcribe_lines(vocals: Path, language: str):
+    """Transcribe the vocal stem into timed lines (one per short segment) with per-word times."""
+    from .lrc import Line
+
     model = _model(language)
-    result = model.transcribe(str(vocals), language=language, vad=True, word_timestamps=True)
+    # vad=False: Silero VAD is fetched from GitHub at runtime (fails behind proxies); stable-ts
+    # still suppresses silence with its own loudness-based detection.
+    result = model.transcribe(str(vocals), language=language, vad=False, word_timestamps=True)
     result.split_by_length(max_chars=42)
-    return [(float(s.start), s.text.strip()) for s in result.segments if s.text.strip()]
+    out = []
+    for seg in result.segments:
+        words = tuple((round(float(w.start), 2), w.word.strip()) for w in seg.words if w.word.strip())
+        text = " ".join(w for _, w in words) or seg.text.strip()
+        if text:
+            out.append(Line(words[0][0] if words else float(seg.start), text, words))
+    return out
 
 
 def detect_language(vocals: Path, start: float | None = None, end: float | None = None) -> str:

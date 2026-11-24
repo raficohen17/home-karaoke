@@ -100,9 +100,40 @@ def test_guess_language():
     assert engine.guess_language("Olivia Rodrigo - vampire") is None
 
 
-@pytest.mark.parametrize("prob,err,mode", [(0.8, False, "aligned"), (0.3, False, "teleprompter"), (None, False, "teleprompter"), (0.9, True, "teleprompter")])
-def test_decide_alignment(prob, err, mode):
-    assert engine.decide_alignment(prob, err) == mode
+# coverage measured 2026-11-24: פנתרה 0.74, ירח 0.67 (good); עטור מצחך live recording 0.04 (lost)
+@pytest.mark.parametrize("cov,err,mode", [(0.74, False, "aligned"), (0.67, False, "aligned"), (0.04, False, "fallback"),
+                                          (None, False, "fallback"), (0.9, True, "fallback")])
+def test_decide_alignment(cov, err, mode):
+    assert engine.decide_alignment(cov, err) == mode
+
+
+def test_low_coverage_falls_back_to_transcription(monkeypatch, tmp_path):
+    import soundfile as sf
+    from karaoke import align, sources
+
+    sr = 8000
+    sig = np.zeros(sr * 10, dtype=np.float32); sig[sr * 2: sr * 8] = 0.3
+    sf.write(str(tmp_path / "v.flac"), sig, sr)
+    monkeypatch.setattr(sources, "fetch_lrclib", lambda name, d=None: [sources.LrclibHit("שיר", "זמר", 300.0, None, "שורה אחת\nשורה שתיים")])
+    monkeypatch.setattr(align, "align_words", lambda v, text, lang: ([(1.0, "שורה", 0.1), (9.0, "אחת", 0.1)], 0.1))
+    monkeypatch.setattr(align, "transcribe_lines", lambda v, lang: [Line(2.0, "שורה אחת", ((2.0, "שורה"), (2.4, "אחת")))])
+    res = engine.build_lyrics({"title": "זמר - שיר", "channel": "x", "duration": 10}, tmp_path / "v.flac")
+    assert res.mode == "transcribed" and res.lines[0].words[1] == (2.4, "אחת") and res.align_coverage == 0.0
+
+
+def test_good_coverage_keeps_text_with_word_times(monkeypatch, tmp_path):
+    import soundfile as sf
+    from karaoke import align, sources
+
+    sr = 8000
+    sig = np.zeros(sr * 10, dtype=np.float32); sig[sr * 2: sr * 8] = 0.3
+    sf.write(str(tmp_path / "v.flac"), sig, sr)
+    monkeypatch.setattr(sources, "fetch_lrclib", lambda name, d=None: [sources.LrclibHit("שיר", "זמר", 300.0, None, "שורה אחת\nשורה שתיים")])
+    monkeypatch.setattr(align, "align_words", lambda v, text, lang: (
+        [(2.0, "שורה", 0.9), (2.5, "אחת", 0.9), (5.0, "שורה", 0.9), (5.5, "שתיים", 0.2)], 0.7))
+    res = engine.build_lyrics({"title": "זמר - שיר", "channel": "x", "duration": 10}, tmp_path / "v.flac")
+    assert res.mode == "aligned" and [l.t for l in res.lines] == [2.0, 5.0]
+    assert res.lines[1].words[1][1] == "שתיים" and 5.0 < res.lines[1].words[1][0]
 
 
 def test_correct_synced_shifts_lines():

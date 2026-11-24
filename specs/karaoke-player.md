@@ -42,6 +42,17 @@ Song position is `ctx.currentTime − startedAt + offset − ctx.outputLatency`;
 Each lyric line has `dir="auto"` and `unicode-bidi: plaintext`; the active line is highlighted,
 enlarged and centred, with two lines of context, over the video dimmed to `brightness(0.35)`.
 
+### Word-by-word highlight
+
+- WHEN the active line has word times THEN its words start white and turn gold one by one as each
+  word's time is reached; lines without word times highlight as a whole.
+
+### Matched stems
+
+- WHEN a song loads THEN both stems are fetched with the song's `stems_version` in the URL and must decode
+  to the same length (else both are refetched uncached), and `/media` is served with
+  `Cache-Control: no-cache`, so an old stem is never paired with a new one after `--restem-all`.
+
 ### Teleprompter
 
 In `teleprompter` mode the text scrolls from `vocal_start` to `vocal_end`, with speed nudges on `/tv`

@@ -18,6 +18,9 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); o
 .line { unicode-bidi: plaintext; text-align: center; font-size: 3.4vw; line-height: 1.25; color: var(--dim);
   transition: color .25s, transform .25s, opacity .25s; max-width: 88vw; text-shadow: 0 2px 12px rgba(0,0,0,.7); }
 .line.active { color: var(--accent); transform: scale(1.12); font-weight: 600; }
+/* per-word lines: the active line starts white and each word turns gold as it is sung */
+.line.active:has(.w) { color: var(--fg); }
+.line .w.sung { color: var(--accent); transition: color .08s; }
 .line.far { opacity: .35; }
 .line.empty::before { content: "♪"; }
 

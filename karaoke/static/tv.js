@@ -1,4 +1,4 @@
-import { parseLrc, activeIndex, songPosition, driftAction, teleprompterRate, teleprompterOffset, sliderToGain } from "./core.js";
+import { parseLrc, wordsSung, activeIndex, songPosition, driftAction, teleprompterRate, teleprompterOffset, sliderToGain } from "./core.js";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -15,7 +15,7 @@ let song = null; // {vid, meta, inst, voc, lines, text}
 let sources = [];
 let startedAt = 0, offset = 0, playing = false;
 let lastSeekAt = -Infinity;
-let lineEls = [], lastActive = -2;
+let lineEls = [], lastActive = -2, lastSung = -1;
 let prompter = { px: 0, rate: 0, lastT: 0 };
 let loadingVid = null;
 let lastReport = 0;
@@ -70,8 +70,8 @@ function finished() {
 }
 
 // ---------- loading ----------
-async function fetchBuf(url) {
-  const r = await fetch(url);
+async function fetchBuf(url, cache = "no-cache") {
+  const r = await fetch(url, { cache });
   if (!r.ok) throw new Error(url + " " + r.status);
   return ctx.decodeAudioData(await r.arrayBuffer());
 }
@@ -83,7 +83,13 @@ async function loadSong(vid, resumeAt = 0) {
   $("loading").hidden = false;
   const base = `/media/${vid}/`;
   const meta = await (await fetch(base + "meta.json", { cache: "no-store" })).json();
-  const [inst, voc] = await Promise.all([fetchBuf(base + "instrumental.flac"), fetchBuf(base + "vocals.flac")]);
+  // Both stems carry the same version, so a cached old stem can never be paired with a new one.
+  const v = `?v=${meta.stems_version || 0}`;
+  let [inst, voc] = await Promise.all([fetchBuf(base + "instrumental.flac" + v), fetchBuf(base + "vocals.flac" + v)]);
+  if (inst.length !== voc.length) { // mismatched pair: refetch both straight from the server
+    console.warn("stem length mismatch", inst.length, voc.length);
+    [inst, voc] = await Promise.all([fetchBuf(base + "instrumental.flac" + v, "no-store"), fetchBuf(base + "vocals.flac" + v, "no-store")]);
+  }
   const { lines, text } = await fetchLyrics(base, meta);
   if (loadingVid !== vid) return; // superseded while loading
   song = { vid, meta, inst, voc, lines, text };
@@ -122,7 +128,7 @@ function renderSong() {
   $("np-mode").textContent = { synced: "synced lyrics", aligned: "auto-aligned lyrics", transcribed: "transcribed lyrics", teleprompter: "teleprompter", none: "no lyrics found" }[meta.lyrics_mode] || "";
   $("nowplaying").hidden = false;
   $("lyrics").replaceChildren();
-  lineEls = []; lastActive = -2;
+  lineEls = []; lastActive = -2; lastSung = -1;
   $("prompter").hidden = !text;
   $("nudge").hidden = !text;
   if (text) {
@@ -138,18 +144,37 @@ function renderSong() {
       const d = document.createElement("div");
       d.className = "line" + (l.text ? "" : " empty");
       d.dir = "auto"; // BiDi: each line picks its own direction
-      d.textContent = l.text;
+      if (l.words?.length) {
+        // one span per word, separated by plain spaces, so the line still reads as one BiDi paragraph
+        l.words.forEach((w, k) => {
+          if (k) d.append(" ");
+          d.append(Object.assign(document.createElement("span"), { className: "w", textContent: w.w }));
+        });
+      } else d.textContent = l.text;
       lineEls.push(d);
     }
   }
 }
 
 const WINDOW = 2; // lines shown before/after the active one
+function updateWords(i, t) {
+  // karaoke wipe: words already reached light up, word by word
+  const words = i >= 0 ? song.lines[i].words : null;
+  if (!words?.length) return;
+  const n = wordsSung(words, t);
+  if (n === lastSung) return;
+  lastSung = n;
+  [...lineEls[i].querySelectorAll(".w")].forEach((el, k) => el.classList.toggle("sung", k < n));
+}
+
 function updateLyrics(t) {
   if (!song?.lines) return;
   const i = activeIndex(song.lines, t + 0.15);
-  if (i === lastActive) return;
+  if (i === lastActive) { updateWords(i, t); return; }
+  if (lastActive >= 0) lineEls[lastActive]?.querySelectorAll(".w.sung").forEach((el) => el.classList.remove("sung"));
   lastActive = i;
+  lastSung = -1;
+  updateWords(i, t);
   const box = $("lyrics");
   const from = Math.max(0, i - WINDOW), to = Math.min(lineEls.length, Math.max(i, 0) + WINDOW + 2);
   box.replaceChildren(...lineEls.slice(from, to));
