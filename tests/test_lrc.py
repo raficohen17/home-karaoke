@@ -47,6 +47,27 @@ def test_map_words_to_lines():
     assert map_words_to_lines(lines, words) == [Line(1.0, "one two"), Line(3.0, "three"), Line(5.0, "four five six")]
 
 
+def test_map_words_survives_merged_tokens():
+    # stable-ts merged "-" with the next word on פנתרה; token counting then shifted every later line
+    lines = ["עם שיניים חשופות - נושכת", "בוא תביא לי", "אני פנתרה"]
+    words = [(1.0, "עם"), (1.4, "שיניים"), (1.9, "חשופות"), (2.4, "- נושכת"), (5.0, "בוא"), (5.3, "תביא"),
+             (5.6, "לי"), (8.0, "אני"), (8.4, "פנתרה")]
+    assert map_words_to_lines(lines, words) == [Line(1.0, lines[0]), Line(5.0, lines[1]), Line(8.0, lines[2])]
+
+
+def test_map_words_survives_split_tokens_and_punctuation():
+    lines = ["la-la-la, yeah", "don't stop", "(ooh)"]
+    words = [(1.0, "la"), (1.2, "-la"), (1.4, "-la,"), (1.8, "yeah"), (3.0, "don"), (3.1, "'t"), (3.3, "stop"),
+             (4.0, "("), (4.1, "ooh)")]
+    assert map_words_to_lines(lines, words) == [Line(1.0, lines[0]), Line(3.0, lines[1]), Line(4.1, lines[2])]
+
+
+def test_map_words_repeated_lines_get_their_own_times():
+    lines = ["אני פנתרה", "אני פנתרה"]
+    words = [(10.0, "אני"), (10.5, "פנתרה"), (20.0, "אני"), (20.5, "פנתרה")]
+    assert [l.t for l in map_words_to_lines(lines, words)] == [10.0, 20.0]
+
+
 def test_map_words_drops_lines_without_words():
     assert map_words_to_lines(["a b", "c"], [(1.0, "a"), (2.0, "b")]) == [Line(1.0, "a b")]
 
@@ -75,3 +96,55 @@ def test_best_offset_zero_when_aligned():
 
 def test_best_offset_empty():
     assert best_offset([], [1.0, 1.0], 0.1) == 0.0
+
+
+# ---------- word-level timing ----------
+from karaoke.lrc import anchor_words, interpolate, monotonic_anchors  # noqa: E402
+
+
+def test_enhanced_lrc_roundtrip():
+    lines = [Line(1.0, "one two", ((1.0, "one"), (1.5, "two"))), Line(4.0, "plain line")]
+    text = format_lrc(lines)
+    assert text == "[00:01.00]<00:01.00>one <00:01.50>two\n[00:04.00]plain line\n"
+    assert parse_lrc(text) == lines
+
+
+def test_shift_moves_word_times():
+    (line,) = shift([Line(5.0, "a b", ((5.0, "a"), (5.4, "b")))], -0.3)
+    assert line.t == 4.7 and line.words == ((4.7, "a"), (5.1000000000000005, "b")) or abs(line.words[1][0] - 5.1) < 1e-9
+
+
+def test_monotonic_anchors_drops_outliers():
+    pts = [(0, 1.0), (10, 2.0), (20, 50.0), (30, 3.0), (40, 4.0), (50, 0.5)]
+    assert monotonic_anchors(pts) == [(0, 1.0), (10, 2.0), (30, 3.0), (40, 4.0)]
+
+
+def test_interpolate_between_and_outside():
+    a = [(10, 2.0), (20, 4.0)]
+    assert interpolate(a, 15) == 3.0
+    assert interpolate(a, 0) == 0.0  # 10 chars before at 0.2 s/char, clamped at 0
+    assert interpolate(a, 30) == 6.0
+
+
+def test_anchor_words_ignores_low_confidence_and_fills_gaps():
+    lines = ["one two three", "four five six"]
+    words = [  # "two" is misplaced with low confidence; "five" is way off with high confidence
+        (1.0, "one", 0.9), (9.0, "two", 0.1), (2.0, "three", 0.8),
+        (4.0, "four", 0.9), (40.0, "five", 0.9), (6.0, "six", 0.9),
+    ]
+    out = anchor_words(lines, words)
+    assert [l.t for l in out] == [1.0, 4.0]
+    w = dict((tok, t) for l in out for t, tok in l.words)
+    assert 1.0 < w["two"] < 2.0  # placed between its confident neighbours, not at 9.0
+    assert 4.0 < w["five"] < 6.0  # outlier rejected by monotonicity
+    assert all(l.words for l in out)
+
+
+def test_anchor_words_times_a_line_with_no_confident_words():
+    lines = ["aaa", "bbb", "ccc"]
+    out = anchor_words(lines, [(1.0, "aaa", 0.9), (99.0, "bbb", 0.1), (3.0, "ccc", 0.9)])
+    assert [l.text for l in out] == lines and abs(out[1].t - 2.0) < 1e-6
+
+
+def test_anchor_words_needs_two_anchors():
+    assert anchor_words(["a b"], [(1.0, "a", 0.9), (2.0, "b", 0.2)]) == []

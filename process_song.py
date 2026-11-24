@@ -16,6 +16,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("input", nargs="?", help="omit with --restem-all")
     ap.add_argument("--restem-all", action="store_true", help="redo stems of every cached song (keeps lyrics)")
+    ap.add_argument("--relyric-all", action="store_true", help="redo lyrics of every cached song (keeps pasted ones)")
     ap.add_argument("--cache", default="cache")
     ap.add_argument("--fast", action="store_true")
     args = ap.parse_args()
@@ -31,8 +32,17 @@ def main() -> None:
             print(f"{vid}: {m['separator_model']} in {m['timings']['separate']}s — {m['title']}", flush=True)
         print(f"total {time.time() - t:.0f}s")
         return
+    if args.relyric_all:
+        from karaoke.pipeline import redo_lyrics
+
+        cache = Cache(args.cache)
+        for vid in cache.list_complete():
+            m = redo_lyrics(vid, cache)
+            print(f"{vid}: {m['lyrics_mode']} ({m.get('lyrics_source')}) prob {m.get('align_prob')} — {m['title']}", flush=True)
+        print(f"total {time.time() - t:.0f}s")
+        return
     if not args.input:
-        ap.error("input is required unless --restem-all")
+        ap.error("input is required unless --restem-all or --relyric-all")
     vid = resolver.resolve(args.input)
     print(f"resolved -> {vid}")
     meta = process(vid, Cache(args.cache), status=lambda s, p=None: print(f"  {s}" + (f" {p:.0%}" if p else "")), mode="fast" if args.fast else "quality")

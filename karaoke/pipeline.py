@@ -49,10 +49,12 @@ def process(video_id: str, cache: Cache, status: StatusFn | None = None, mode: s
         "lyrics_source": res.source,
         "lyrics_offset": res.offset,
         "align_prob": res.align_prob,
+        "align_coverage": res.align_coverage,
         "vocal_start": res.vocal_start,
         "vocal_end": res.vocal_end,
         "separator": mode,
         "separator_model": media.SEPARATORS[mode][0],
+        "stems_version": int(time.time()),
         "timings": timings,
     }
     cache.commit(video_id, meta)
@@ -102,7 +104,33 @@ def restem(video_id: str, cache: Cache, mode: str = "quality") -> dict:
     shutil.rmtree(work, ignore_errors=True)
     meta = cache.read_meta(video_id)
     v_start, v_end = vocals.onsets(vocals.load_activity(d / "vocals.flac"))
-    meta.update(separator=mode, separator_model=media.SEPARATORS[mode][0], vocal_start=v_start, vocal_end=v_end)
+    meta.update(
+        separator=mode, separator_model=media.SEPARATORS[mode][0], vocal_start=v_start, vocal_end=v_end,
+        stems_version=int(time.time()),  # new URL for the pair: the TV never mixes old and new stems
+    )
     meta.setdefault("timings", {})["separate"] = round(time.time() - t, 1)
+    write_meta(d, meta)
+    return meta
+
+
+def redo_lyrics(video_id: str, cache: Cache) -> dict:
+    """Re-run the lyrics engine on a cached song (keeps pasted lyrics); meta.json is rewritten last."""
+    from .cache import write_meta
+
+    d = cache.song_dir(video_id)
+    if not cache.is_complete(video_id):
+        raise FileNotFoundError(f"{video_id} is not a complete cached song")
+    meta = cache.read_meta(video_id)
+    if meta.get("lyrics_source") == "pasted":
+        return meta
+    t = time.time()
+    res = engine.build_lyrics(meta, d / "vocals.flac")
+    engine.write_lyrics(res, d)
+    meta.update(
+        language=res.language, lyrics_mode=res.mode, lyrics_source=res.source, lyrics_offset=res.offset,
+        align_prob=res.align_prob, align_coverage=res.align_coverage, vocal_start=res.vocal_start,
+        vocal_end=res.vocal_end,
+    )
+    meta.setdefault("timings", {})["lyrics"] = round(time.time() - t, 1)
     write_meta(d, meta)
     return meta

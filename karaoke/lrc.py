@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 
 _TAG = re.compile(r"\[(\d+):(\d{1,2}(?:[.:]\d{1,3})?)\]")
+_WTAG = re.compile(r"<(\d+):(\d{1,2}(?:[.:]\d{1,3})?)>")
 _META = re.compile(r"^\[[a-z]+:.*\]$", re.I)
 
 
@@ -12,6 +13,25 @@ _META = re.compile(r"^\[[a-z]+:.*\]$", re.I)
 class Line:
     t: float
     text: str
+    words: tuple[tuple[float, str], ...] = ()  # (start, word) per word; empty when only the line is timed
+
+
+def _secs(m: re.Match) -> float:
+    return int(m.group(1)) * 60 + float(m.group(2).replace(":", "."))
+
+
+def _parse_words(body: str) -> tuple[str, tuple[tuple[float, str], ...]]:
+    """Enhanced LRC body "<00:01.00>one <00:01.50>two" -> ("one two", ((1.0, "one"), (1.5, "two")))."""
+    marks = list(_WTAG.finditer(body))
+    if not marks:
+        return body.strip(), ()
+    words = []
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(body)
+        w = body[m.end():end].strip()
+        if w:
+            words.append((_secs(m), w))
+    return " ".join(w for _, w in words), tuple(words)
 
 
 def parse_lrc(text: str) -> list[Line]:
@@ -24,10 +44,9 @@ def parse_lrc(text: str) -> list[Line]:
         tags = list(_TAG.finditer(raw))
         if not tags:
             continue
-        lyric = _TAG.sub("", raw).strip()
+        lyric, words = _parse_words(_TAG.sub("", raw))
         for m in tags:
-            sec = float(m.group(2).replace(":", "."))
-            out.append(Line(int(m.group(1)) * 60 + sec, lyric))
+            out.append(Line(_secs(m), lyric, words if len(tags) == 1 else ()))
     out.sort(key=lambda line: line.t)
     return out
 
@@ -40,11 +59,19 @@ def format_time(t: float) -> str:
 
 
 def format_lrc(lines: list[Line]) -> str:
-    return "\n".join(f"[{format_time(line.t)}]{line.text}" for line in lines) + "\n"
+    """LRC; lines with word times use the enhanced form "[mm:ss.xx]<mm:ss.xx>word <mm:ss.xx>word"."""
+    out = []
+    for line in lines:
+        body = " ".join(f"<{format_time(t)}>{w}" for t, w in line.words) if line.words else line.text
+        out.append(f"[{format_time(line.t)}]{body}")
+    return "\n".join(out) + "\n"
 
 
 def shift(lines: list[Line], offset: float) -> list[Line]:
-    return [Line(max(0.0, line.t + offset), line.text) for line in lines]
+    return [
+        Line(max(0.0, line.t + offset), line.text, tuple((max(0.0, t + offset), w) for t, w in line.words))
+        for line in lines
+    ]
 
 
 _LABEL = re.compile(
@@ -78,21 +105,159 @@ def plain_lines(text: str) -> list[str]:
     return out
 
 
-def map_words_to_lines(lines: list[str], words: list[tuple[float, str]]) -> list[Line]:
-    """Assign aligned words (start, text) to lyric lines in order; a line starts at its first word.
+_WORDCHAR = re.compile(r"\w")
 
-    Words are consumed by matching each line's whitespace-token count, which holds because the
-    aligner returns the same tokens it was given. Lines left without words are dropped.
+
+def map_words_to_lines(lines: list[str], words: list[tuple[float, str]]) -> list[Line]:
+    """Give each lyric line the start time of the first aligned word inside it.
+
+    Words are located by character position in the joined text, not by counting tokens: the
+    aligner may merge or split tokens (e.g. "-" + "נושכת" -> "- נושכת"), and counting tokens
+    then shifts every later line onto the wrong word. Punctuation-only words are skipped, a word is
+    placed at its first letter, and lines with no aligned word are dropped.
     """
+    text = "\n".join(lines)
+    spans, pos = [], 0
+    for line in lines:
+        spans.append((pos, pos + len(line)))
+        pos += len(line) + 1
+    starts: list[tuple[int, float]] = []  # (char index of the word's first letter, time)
+    cursor = 0
+    for t, w in words:
+        w = w.strip()
+        m = _WORDCHAR.search(w)
+        if not m:
+            continue  # punctuation only
+        core = w[m.start():]
+        idx = text.find(core, cursor)
+        if idx < 0:  # aligner normalised the word differently; try its first letter-run
+            first = re.match(r"\w+", core).group(0)
+            idx = text.find(first, cursor)
+            if idx < 0:
+                continue
+        starts.append((idx, t))
+        cursor = idx + 1
     out: list[Line] = []
-    i = 0
-    for text in lines:
-        n = len(text.split())
-        chunk = words[i : i + n]
-        i += n
-        if chunk:
-            out.append(Line(chunk[0][0], text))
+    k = 0
+    for (lo, hi), line in zip(spans, lines):
+        while k < len(starts) and starts[k][0] < lo:
+            k += 1
+        if k < len(starts) and starts[k][0] < hi:
+            out.append(Line(starts[k][1], line))
     return out
+
+
+ANCHOR_PROB = 0.5  # aligner word probability at or above which a word is trusted as an anchor
+
+
+def anchor_words(
+    lines: list[str], words: list[tuple[float, str, float]], min_prob: float = ANCHOR_PROB,
+    stats: dict | None = None,
+) -> list[Line]:
+    """Time every word of every line from the aligner's words (start, text, probability).
+
+    Confident words that keep moving forward in time are anchors. Every other word, including
+    whole lines the aligner got nothing confident for, is placed by its character position
+    between the anchors around it, so a few badly aligned words can't drag a line off.
+    Each line starts at its first word. Lines are returned for every input line when there are
+    at least two anchors; with fewer, nothing can be anchored and an empty list is returned.
+    """
+    text = "\n".join(lines)
+    tokens = [(m.start(), m.end(), m.group(0)) for m in re.finditer(r"\S+", text)]
+    if not tokens:
+        if stats is not None:
+            stats.update(anchors=0, tokens=0, coverage=0.0)
+        return []
+    # locate aligner words by character position (same rule as map_words_to_lines)
+    located: list[tuple[int, float, float]] = []
+    cursor = 0
+    for t, w, p in words:
+        w = w.strip()
+        m = _WORDCHAR.search(w)
+        if not m:
+            continue
+        core = w[m.start():]
+        idx = text.find(core, cursor)
+        if idx < 0:
+            first = re.match(r"\w+", core).group(0)
+            idx = text.find(first, cursor)
+            if idx < 0:
+                continue
+        located.append((idx, t, p))
+        cursor = idx + 1
+    # token time/confidence = its first located word
+    tok_time: list[float | None] = [None] * len(tokens)
+    tok_prob = [0.0] * len(tokens)
+    j = 0
+    for i, (lo, hi, _) in enumerate(tokens):
+        while j < len(located) and located[j][0] < lo:
+            j += 1
+        k = j
+        while k < len(located) and located[k][0] < hi:
+            if tok_time[i] is None:
+                tok_time[i] = located[k][1]
+            tok_prob[i] = max(tok_prob[i], located[k][2])
+            k += 1
+    anchors = monotonic_anchors(
+        [(tokens[i][0], tok_time[i]) for i in range(len(tokens)) if tok_time[i] is not None and tok_prob[i] >= min_prob]
+    )
+    if stats is not None:  # share of the lyrics' words anchored in order (the alignment quality gate)
+        stats.update(anchors=len(anchors), tokens=len(tokens), coverage=len(anchors) / len(tokens))
+    if len(anchors) < 2:
+        return []
+    times = [interpolate(anchors, lo) for lo, _, _ in tokens]
+    out, ti, pos = [], 0, 0
+    for line in lines:
+        hi = pos + len(line)
+        ws = []
+        while ti < len(tokens) and tokens[ti][0] < hi:
+            ws.append((round(times[ti], 2), tokens[ti][2]))
+            ti += 1
+        if ws:
+            out.append(Line(ws[0][0], line, tuple(ws)))
+        pos = hi + 1
+    return out
+
+
+def monotonic_anchors(points: list[tuple[int, float]], min_gap: float = 0.05) -> list[tuple[int, float]]:
+    """Longest run of (char, time) points whose times increase with position (drops outliers that
+    jump backwards or far ahead), keeping at least min_gap seconds between consecutive anchors.
+    Between equally long runs, the one that ends later in the text wins."""
+    n = len(points)
+    if n == 0:
+        return []
+    best = [1] * n
+    prev = [-1] * n
+    for i in range(n):
+        for k in range(i):
+            if points[i][1] >= points[k][1] + min_gap and best[k] + 1 > best[i]:
+                best[i], prev[i] = best[k] + 1, k
+    i = max(range(n), key=lambda x: (best[x], points[x][0]))  # tie: the chain reaching further into the text
+    chain = []
+    while i >= 0:
+        chain.append(points[i])
+        i = prev[i]
+    return chain[::-1]
+
+
+def interpolate(anchors: list[tuple[int, float]], pos: int) -> float:
+    """Time at character `pos`, linear between the anchors around it; outside them, extrapolated at
+    the song's average seconds per character."""
+    (c0, t0), (c1, t1) = anchors[0], anchors[-1]
+    rate = (t1 - t0) / (c1 - c0) if c1 > c0 else 0.0
+    if pos <= c0:
+        return max(0.0, t0 - (c0 - pos) * rate)
+    if pos >= c1:
+        return t1 + (pos - c1) * rate
+    lo, hi = 0, len(anchors) - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if anchors[mid][0] <= pos:
+            lo = mid
+        else:
+            hi = mid
+    (a, ta), (b, tb) = anchors[lo], anchors[hi]
+    return ta + (tb - ta) * (pos - a) / (b - a) if b > a else ta
 
 
 def best_offset(

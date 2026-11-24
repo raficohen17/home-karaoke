@@ -12,9 +12,8 @@ from .lrc import Line
 log = logging.getLogger(__name__)
 
 ALIGN_TIMEOUT = 300.0
-MIN_ALIGN_PROB = 0.5
 MAX_OFFSET = 30.0
-ALIGNED_LEAD = 0.3  # aligned line starts run ~0.3-0.5s late vs hand-synced LRC (vampire); show lines early
+ALIGNED_LEAD = 0.0  # anchored word times already run ~0.28s early vs hand-synced LRC (vampire, D-lyrics-engine-3)
 
 
 @dataclass
@@ -25,6 +24,7 @@ class LyricsResult:
     source: str | None = None
     offset: float = 0.0
     align_prob: float | None = None
+    align_coverage: float | None = None
     vocal_start: float | None = None
     vocal_end: float | None = None
     language: str = "en"
@@ -37,10 +37,18 @@ def guess_language(*texts: str) -> str | None:
     return "he" if any(sources.has_hebrew(t or "") for t in texts) else None
 
 
-def decide_alignment(prob: float | None, error: bool) -> str:
-    """Mode after an alignment attempt."""
-    if error or prob is None or prob < MIN_ALIGN_PROB:
-        return "teleprompter"
+MIN_COVERAGE = 0.35  # share of words anchored in order needed to trust an alignment (D-lyrics-engine-6)
+
+
+def decide_alignment(coverage: float | None, error: bool) -> str:
+    """Mode after an alignment attempt: 'aligned', or 'fallback' (try transcription, then teleprompter).
+
+    Gated on anchor coverage, not mean probability: a live recording with talking between verses
+    has a low mean even where the singing aligns well, and a mean can look fine while the aligner
+    has lost the song after its first minute.
+    """
+    if error or coverage is None or coverage < MIN_COVERAGE:
+        return "fallback"
     return "aligned"
 
 
@@ -99,19 +107,44 @@ def build_lyrics(meta: dict, vocals_path: Path, progress=None) -> LyricsResult:
             words, prob, err = [], None, True
         res.align_prob = prob
         res.source = src
-        if decide_alignment(prob, err) == "aligned":
-            res.mode, res.lines = "aligned", lrc.shift(lrc.map_words_to_lines(lines_text, words), -ALIGNED_LEAD)
-        else:
-            res.mode, res.text = "teleprompter", "\n".join(lines_text)
+        stats: dict = {}
+        lines = timed_lines(lines_text, words, stats) if not err else []
+        res.align_coverage = stats.get("coverage")
+        if decide_alignment(res.align_coverage, err) == "aligned":
+            res.mode, res.lines = "aligned", lines
+            return res
+        log.info("alignment coverage %.2f too low; transcribing instead", res.align_coverage or 0)
+        if transcribe_into(res, vocals_path, language):
+            return res
+        res.mode, res.text, res.source = "teleprompter", "\n".join(lines_text), src
         return res
 
+    transcribe_into(res, vocals_path, language)
+    return res
+
+
+def transcribe_into(res: LyricsResult, vocals_path: Path, language: str) -> bool:
+    """Fill res with Whisper's transcription of the vocals (per-word times); False if it fails."""
+    from . import align
+
     try:
-        pairs = _with_timeout(align.transcribe_lines, ALIGN_TIMEOUT * 2, vocals_path, language)
-        if pairs:
-            res.mode, res.lines, res.source = "transcribed", [Line(t, s) for t, s in pairs], "whisper"
+        lines = _with_timeout(align.transcribe_lines, ALIGN_TIMEOUT * 2, vocals_path, language)
     except Exception as e:
         log.warning("transcription failed: %s", e)
-    return res
+        return False
+    if not lines:
+        return False
+    res.mode, res.lines, res.source = "transcribed", lines, "whisper"
+    return True
+
+
+def timed_lines(lines_text: list[str], words: list[tuple[float, str, float]], stats: dict | None = None) -> list[Line]:
+    """Per-word times anchored on confident words (D-lyrics-engine-6); line-level mapping when
+    fewer than two words are confident. Shifted by ALIGNED_LEAD."""
+    lines = lrc.anchor_words(lines_text, words, stats=stats)
+    if not lines:
+        lines = lrc.map_words_to_lines(lines_text, [(t, w) for t, w, _ in words])
+    return lrc.shift(lines, -ALIGNED_LEAD)
 
 
 def classify_pasted(text: str) -> str:
@@ -140,8 +173,11 @@ def lyrics_from_paste(text: str, vocals_path: Path, language: str | None = None)
         log.warning("alignment of pasted lyrics failed: %s", e)
         words, prob, err = [], None, True
     res.align_prob = prob
-    if decide_alignment(prob, err) == "aligned":
-        res.mode, res.lines = "aligned", lrc.shift(lrc.map_words_to_lines(lines_text, words), -ALIGNED_LEAD)
+    stats: dict = {}
+    lines = timed_lines(lines_text, words, stats) if not err else []
+    res.align_coverage = stats.get("coverage")
+    if decide_alignment(res.align_coverage, err) == "aligned":
+        res.mode, res.lines = "aligned", lines
     else:
         res.mode, res.text = "teleprompter", "\n".join(lines_text)
     return res

@@ -31,12 +31,15 @@ vocals. Playback never waits on lyrics after `READY`.
   lines the lyric lines up with vocal activity in `vocals.flac` (D-lyrics-engine-1), written to
   `lyrics.lrc`, and `lyrics_mode` is `synced`.
 - WHEN no synced lyrics fit THEN plain text from LRCLIB (any duration) or, for `he`, Shironet is aligned
-  to `vocals.flac` with stable-ts; lines start 0.3s before their first aligned word
-  (D-lyrics-engine-3); `lyrics_mode` is `aligned`.
-- WHEN alignment raises, runs past 300s, or its mean word probability is below 0.5 THEN the text is
-  written to `lyrics.txt` and `lyrics_mode` is `teleprompter`.
-- WHEN no lyrics text is found THEN Whisper transcribes the vocal stem into timed lines and
-  `lyrics_mode` is `transcribed`.
+  to `vocals.flac` with stable-ts, every word gets a time anchored on the confident words
+  (D-lyrics-engine-6), `lyrics.lrc` is written in enhanced LRC (`[mm:ss.xx]<mm:ss.xx>word …`), and
+  `lyrics_mode` is `aligned`.
+- WHEN alignment raises, runs past 300s, or anchors fewer than 35% of the words in order THEN Whisper
+  transcribes the vocal stem instead (`transcribed`, with word times); only if that also fails is the
+  text shown as a `teleprompter`.
+- WHEN no lyrics text is found THEN Whisper transcribes the vocal stem into timed lines with word times
+  and `lyrics_mode` is `transcribed`.
+- `process_song.py --relyric-all` re-runs this for every cached song, keeping pasted lyrics.
 - WHEN nothing works THEN `lyrics_mode` is `none` and the song still plays.
 - `meta.json` always records `vocal_start` and `vocal_end`, the first and last vocal activity.
 
@@ -58,10 +61,23 @@ A guest can replace a ready song's lyrics from `/remote`.
   timestamps as they are.
 - **D-lyrics-engine-2 — stable-ts on faster-whisper (CPU, int8, cores − 4 threads):** `ivrit-ai/whisper-large-v3-turbo-ct2`
   for Hebrew, `large-v3-turbo` for English. Rejects openai-whisper large-v3 on MPS (uneven support).
-- **D-lyrics-engine-3 — Aligned lines lead by 0.3s.** On "vampire", aligned line starts ran a median
-  0.46s later than the hand-synced LRCLIB times (mean word probability 0.82).
+- **D-lyrics-engine-3 — No lead on aligned times** (was 0.3s). The 0.3s lead was tuned on the buggy
+  token-count mapping. With anchored word times, "vampire" against its hand-synced LRCLIB timings:
+  median |error| 0.29s at lead 0 (signed −0.28s: slightly early, good for karaoke), 0.58s at 0.3s.
 - **D-lyrics-engine-4 — No Genius.** Its API and pages sit behind a Cloudflare bot challenge; the app
   does not work around bot checks. Transcription and pasted lyrics cover the gap.
 - **D-lyrics-engine-5 — Artist must match too.** A different artist's song with the same title and
   length (e.g. two Hebrew "מיליון דולר" songs) is rejected; title ≥0.6 and artist ≥0.5 similarity
   on Hebrew-normalised text (niqqud and ו/י removed, so מליון = מיליון).
+- **D-lyrics-engine-6 — Words are placed by character position and anchored on confident words.**
+  The aligner merges and splits tokens ("-" + "נושכת" → "- נושכת"), so counting tokens shifted every
+  later line onto the wrong word: on "פנתרה" lines were a median 2.27s off and 22 of 52 more than 2s
+  off. Now each aligner word is located by character position; words with probability ≥ 0.5 that
+  keep moving forward in time (longest increasing run) are anchors, and every other word is placed
+  by character position between anchors. Against a Whisper transcription of the vocals: median
+  0.20s, 30 lines within 0.5s, 5 over 2s. The quality gate is the share of words anchored (≥ 35%), not
+  mean probability: "עטור מצחך" (a live recording with talking) had 4% anchors, all in its first 11s,
+  so it is transcribed instead; "פנתרה" 74%, "ירח" 67%.
+- **D-lyrics-engine-7 — No Silero VAD in transcription.** stable-ts downloads it from GitHub at run
+  time, which fails behind TLS-inspecting proxies; its built-in loudness-based silence detection is
+  enough on an isolated vocal stem.

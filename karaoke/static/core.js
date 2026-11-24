@@ -1,15 +1,38 @@
 // Pure player logic shared by /tv and tested with `node --test` (no DOM here).
 
+const secs = (m) => Number(m[1]) * 60 + Number(m[2].replace(":", "."));
+
+// Enhanced-LRC body "<00:01.00>one <00:01.50>two" -> {text: "one two", words: [{t, w}]}
+export function parseWords(body) {
+  const wtag = /<(\d+):(\d{1,2}(?:[.:]\d{1,3})?)>/g;
+  const marks = [...body.matchAll(wtag)];
+  if (!marks.length) return { text: body.trim(), words: [] };
+  const words = [];
+  marks.forEach((m, i) => {
+    const end = i + 1 < marks.length ? marks[i + 1].index : body.length;
+    const w = body.slice(m.index + m[0].length, end).trim();
+    if (w) words.push({ t: secs(m), w });
+  });
+  return { text: words.map((x) => x.w).join(" "), words };
+}
+
 export function parseLrc(text) {
   const tag = /\[(\d+):(\d{1,2}(?:[.:]\d{1,3})?)\]/g;
   const out = [];
   for (const raw of text.split(/\r?\n/)) {
     const tags = [...raw.matchAll(tag)];
     if (!tags.length) continue;
-    const lyric = raw.replace(tag, "").trim();
-    for (const m of tags) out.push({ t: Number(m[1]) * 60 + Number(m[2].replace(":", ".")), text: lyric });
+    const { text: lyric, words } = parseWords(raw.replace(tag, ""));
+    for (const m of tags) out.push({ t: secs(m), text: lyric, words: tags.length === 1 ? words : [] });
   }
   return out.sort((a, b) => a.t - b.t);
+}
+
+// Number of words of a line already reached at time t (words are sorted by time).
+export function wordsSung(words, t) {
+  let n = 0;
+  while (n < words.length && words[n].t <= t) n++;
+  return n;
 }
 
 // Index of the line active at time t (last line with start <= t), or -1 before the first.
