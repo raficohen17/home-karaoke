@@ -49,7 +49,29 @@ def test_begin_discards_previous_partial(tmp_path):
     (c.begin("abc") / "junk").write_text("x")
     assert not (c.begin("abc") / "junk").exists()
     c.clear_staging()
-    assert not (tmp_path / ".staging").exists()
+    assert not (tmp_path / ".staging" / "abc").exists()
+
+
+def test_clear_staging_keeps_work_of_a_live_process(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    c = Cache(tmp_path)
+    live = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        busy = tmp_path / ".staging" / "busy"
+        busy.mkdir(parents=True)
+        (busy / ".owner_pid").write_text(str(live.pid))
+        dead = tmp_path / ".staging" / "dead"
+        dead.mkdir()
+        (dead / ".owner_pid").write_text("999999")
+        (tmp_path / ".staging" / "nopid").mkdir()
+        c.clear_staging()
+        assert busy.exists() and not dead.exists() and not (tmp_path / ".staging" / "nopid").exists()
+    finally:
+        live.kill()
+    assert os.getpid()
 
 
 def test_activity_and_onsets():
