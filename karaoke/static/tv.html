@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Karaoke TV</title>
+<link rel="stylesheet" href="/static/tv.css">
+</head>
+<body>
+<video id="video" muted playsinline preload="auto"></video>
+<div id="shade"></div>
+
+<div id="lyrics" aria-live="off"></div>
+<div id="prompter" hidden><div id="prompter-text" dir="auto"></div></div>
+
+<header id="nowplaying" hidden>
+  <div id="np-title" dir="auto"></div>
+  <div id="np-mode"></div>
+</header>
+
+<aside id="join">
+  <img id="qr" src="/qr.svg" alt="QR code to join">
+  <div id="join-url" dir="ltr"></div>
+</aside>
+
+<section id="idle">
+  <h1>Karaoke</h1>
+  <p id="idle-msg">Scan the code to add a song</p>
+</section>
+
+<footer id="controls">
+  <button id="btn-play" title="Play/Pause">⏯</button>
+  <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Seek">
+  <span id="time">0:00</span>
+  <label class="vocal">Vocal guide <input id="vocal" type="range" min="0" max="100" value="55"><span id="vocal-pct">55%</span></label>
+  <span class="nudge" id="nudge" hidden><button data-nudge="-">−</button>scroll<button data-nudge="+">+</button></span>
+  <button id="btn-skip" title="Skip">⏭</button>
+</footer>
+
+<div id="unlock"><button id="unlock-btn">Tap to start</button><p id="unlock-note">The browser needs one tap before it can play sound.</p></div>
+<div id="loading" hidden>Loading…</div>
+
+<script type="module" src="/static/tv.js"></script>
+</body>
+</html>

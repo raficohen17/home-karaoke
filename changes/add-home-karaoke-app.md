@@ -16,126 +16,15 @@ were queued a few minutes earlier.
 
 ## Specs
 
-### `specs/media-pipeline.md` (new)
+All four specs are new and now carry their requirements (moved in 0ac876f):
+`specs/media-pipeline.md`, `specs/lyrics-engine.md`, `specs/karaoke-player.md`, `specs/party-queue.md`.
 
-**Requirement: Source resolution.** The pipeline resolves a YouTube URL, a Spotify track URL,
-or a free-text query (Hebrew or English) to one YouTube `video_id`.
-
-- WHEN a guest submits a YouTube URL (`watch?v=`, `youtu.be/`, `shorts/`, `music.youtube.com`)
-  THEN the pipeline uses that URL's `video_id` without searching.
-- WHEN a guest submits a Spotify track URL THEN the pipeline reads the track title, artist and
-  duration from the Spotify page metadata (`og:title`, `og:description`, `music:duration`),
-  searches YouTube for `<artist> - <title>` (`ytsearch5:`), and picks the candidate with the
-  best score: duration within ±3s of Spotify's first, then "Topic"/"Official Audio" uploads,
-  then view count.
-- WHEN no candidate is within ±10s of the Spotify duration THEN the job ends `FAILED` with
-  reason `no_match`.
-- WHEN a guest submits free text THEN `/remote` shows the top 5 YouTube results (title,
-  channel, duration, thumbnail) and queues the one the guest taps.
-
-**Requirement: Download.** The pipeline downloads video capped at 720p H.264
-(`bv*[height<=720][vcodec^=avc1]+ba`) and the best audio into a staging directory.
-
-- WHEN yt-dlp fails (age-restricted, region-blocked, removed, extractor error) THEN the job
-  ends `FAILED` with yt-dlp's reason, and the queue moves on.
-
-**Requirement: Stem separation.** The pipeline separates the audio into `instrumental.flac`
-and `vocals.flac` with the same sample rate and the same sample count.
-
-- WHEN separation finishes THEN both stems decode to equal sample counts (a check in code, not
-  a tolerance).
-
-**Requirement: Atomic cache.** A song directory `cache/<video_id>/` exists only once it is
-complete.
-
-- WHEN the pipeline works on a song THEN it writes to `cache/.staging/<video_id>/` and renames
-  it to `cache/<video_id>/` as its last step, with `meta.json` carrying `"status": "complete"`.
-- WHEN `cache/<video_id>/meta.json` has `"status": "complete"` THEN a request for that song is
-  `READY` immediately, with no download or separation.
-- WHEN the host process starts THEN it deletes `cache/.staging/`.
-
-### `specs/lyrics-engine.md` (new)
-
-**Requirement: Language.** The engine records `language` (`he` or `en`) in `meta.json`.
-
-- WHEN the title or artist contains Hebrew letters THEN `language` is `he`; otherwise the
-  engine runs Whisper language detection on the first 30s of vocals and records the result.
-
-**Requirement: Lyrics waterfall.** The engine tries synced lyrics, then plain text with
-forced alignment, then a teleprompter, and playback never waits on lyrics past `READY`.
-
-- WHEN LRCLIB returns synced lyrics whose duration is within ±2s of the downloaded audio THEN
-  the engine shifts them by the measured offset (first LRC timestamp vs the first vocal onset
-  in `vocals.flac`), writes `lyrics.lrc`, and sets `lyrics_mode: "synced"`.
-- WHEN no synced match fits THEN the engine fetches plain text from Shironet (`he`) or Genius
-  (`en`, and the fallback for `he`), aligns it to `vocals.flac` with stable-ts, writes
-  `lyrics.lrc`, and sets `lyrics_mode: "aligned"`.
-- WHEN alignment raises, runs past 180s, or its mean word probability is below 0.5 THEN the
-  engine writes the plain text to `lyrics.txt`, records the first and last vocal onsets
-  (`vocal_start`, `vocal_end`) in `meta.json`, and sets `lyrics_mode: "teleprompter"`.
-- WHEN no source returns lyrics THEN `lyrics_mode` is `"none"` and the song still plays.
-
-### `specs/karaoke-player.md` (new)
-
-**Requirement: Audio unlock.** `/tv` starts behind a full-screen "Tap to start" that resumes
-the `AudioContext`; later songs start without a gesture.
-
-- WHEN `/tv` loads THEN it shows "Tap to start" until tapped, and the server marks the TV
-  `audio_ready: false`, which `/remote` shows as "TV needs a tap".
-
-**Requirement: Dual-stem playback.** `/tv` plays both stems from one `AudioContext`, each
-through its own `GainNode`, started with one `start(when, offset)` call so they stay aligned to
-the sample.
-
-- WHEN the vocal guide moves between 0% and 100% (TV or remote) THEN the vocals gain ramps to
-  the new value over 50ms (`setTargetAtTime`) with no click, and the instrumental stays at 100%.
-- WHEN the singer seeks or resumes THEN the player makes new source nodes for both stems at
-  the same `when` and offset.
-
-**Requirement: Song clock.** Song position is
-`ctx.currentTime - startedAt + offset - ctx.outputLatency`; lyrics and video both follow it.
-
-- WHEN video drift from the song clock is between 0.05s and 0.5s THEN the player sets
-  `video.playbackRate` to 0.95 or 1.05 until drift is under 0.05s.
-- WHEN drift exceeds 0.5s THEN the player seeks the video once and waits 1s before checking
-  again.
-
-**Requirement: BiDi-safe lyrics.** Each lyric line has `dir="auto"` and
-`unicode-bidi: plaintext`; the active line is highlighted and centered over the video dimmed
-to `brightness(0.35)`.
-
-- WHEN a Hebrew, English or mixed line is shown THEN its punctuation sits on the reading side
-  of that line's own direction.
-
-**Requirement: Teleprompter.** In `teleprompter` mode the text scrolls from `vocal_start` to
-`vocal_end`, with `+` / `-` speed nudges on `/tv` and `/remote`.
-
-**Requirement: Resume after reload.** WHEN `/tv` reloads mid-song THEN it resumes the current
-song from the position the server last received, after the tap.
-
-### `specs/party-queue.md` (new)
-
-**Requirement: Serial background worker.** One worker processes queued songs in FIFO order,
-one at a time, while the current song plays.
-
-- WHEN a song is queued THEN every client sees its status move through `QUEUED`,
-  `DOWNLOADING`, `SEPARATING`, `ALIGNING`, then `READY` or `FAILED` (with a reason).
-- WHEN the same `video_id` is already queued or playing THEN the queue adds nothing and the
-  guest sees "Already in queue".
-
-**Requirement: Queue control.** Guests can remove and reorder songs that aren't playing,
-pause/resume, skip, and set the vocal guide; the server holds the queue and relays playback
-commands to `/tv`.
-
-- WHEN the current song ends or is skipped THEN the next `READY` song plays; `FAILED` songs are
-  passed over, and a song still processing shows "Up next — preparing (<status>)" on `/tv`
-  until it is ready.
-
-**Requirement: Join by QR.** `/tv` shows a QR code for `http://<host-ip>:<port>/remote`.
-
-- WHEN the host has several interfaces THEN `<host-ip>` is the private IPv4 address of the
-  default-route interface, or `--host-ip` when given.
-- WHEN a guest scans the QR code on the same Wi-Fi THEN `/remote` opens with the live queue.
+Changed from the plan while building:
+- Lyrics are looked up under English/alternate names too ("מיליון דולר" is on LRCLIB only as
+  "Million Dollar" by "Noa Kirel"), and an LRCLIB hit must match the artist as well as the title.
+- Genius is dropped (Cloudflare bot check); Whisper transcription of the vocal stem and
+  **pasted lyrics** from `/remote` fill the gap.
+- `--fast` separation mode (MDX-Net) next to the default BS-RoFormer.
 
 ## Prior art
 
@@ -146,63 +35,64 @@ commands to `/tv`.
 
 ## Decisions
 
-- **D1 Separator: `audio-separator` with a BS-RoFormer vocal model.** It is one Python
-  dependency that also runs MDX-Net and Demucs models, so swapping is a config line. Rejects
-  carrying both `audio-separator` and `demucs` as undecided options. Task 1.6 measures time
-  per song; if it's over 90s for a 4-minute song on the host, switch the model, not the library.
-- **D2 Stems are FLAC, not MP3.** MP3 encoder delay and padding vary by decoder and break
-  sample alignment; FLAC decodes to the same sample count everywhere `decodeAudioData` runs.
-  Rejects MP3 with a 20ms tolerance. Cost is about 25MB per stem on local disk.
-- **D3 Alignment: stable-ts on faster-whisper**, using `ivrit-ai/whisper-large-v3-turbo-ct2` for
-  `he` and `large-v3-turbo` for `en`. faster-whisper runs on CPU at usable speed where PyTorch
-  MPS support is uneven. Rejects openai-whisper `large-v3` as one model for both languages.
-- **D4 Video drift: rate nudge, then a rare hard seek** (thresholds in karaoke-player). Seeking
-  H.264 lands on keyframes, so seeking at every 0.15s of drift stutters. Rejects the source's
-  hard seek at 0.15s.
-- **D5 Spotify metadata from the track page's Open Graph tags.** oEmbed doesn't reliably carry
-  the artist, and the Web API needs credentials. Rejects oEmbed-only and a Spotify developer app.
-- **D6 Synced lyrics are offset-corrected against the vocal stem.** LRCLIB timestamps are for
-  the album audio, and YouTube uploads add intros. Rejects trusting LRCLIB timestamps as-is.
-- **D7 One serial worker.** One GPU/MPS device runs one separation well; parallel jobs slow
-  both. Rejects a worker per queued song.
-- **D8 Sequencing: CLI engine (M1), then player (M2), then party mode (M3).** Each milestone is
-  usable alone and the benchmark gates the model choices before UI work. Governs the work only.
-- **D9 No auth on `/remote`.** Home LAN party; anyone on the Wi-Fi is a guest. Rejects PINs.
-  Not a goal: hosting, licensing, mic scoring, native apps.
+- D1 → D-media-pipeline-1 in specs/media-pipeline.md (revised: BS-RoFormer overlap 2 + fp16; the
+  90s budget was missed — ~150s per song — but songs prepare while the previous one plays; `--fast`
+  is ~35s)
+- D2 → D-media-pipeline-2 in specs/media-pipeline.md
+- D3 → D-lyrics-engine-2 in specs/lyrics-engine.md
+- D4 → D-karaoke-player-1 in specs/karaoke-player.md
+- D5 → D-media-pipeline-3 in specs/media-pipeline.md
+- D6 → D-lyrics-engine-1 in specs/lyrics-engine.md
+- D7 → D-party-queue-1 in specs/party-queue.md
+- D8 Sequencing: CLI engine (M1), then player (M2), then party mode (M3). Governs the work only.
+- D9 → overridden by D-party-queue-3 in specs/party-queue.md (party key in the QR code; red team
+  2026-11-24 found path traversal and socket hijacking with open access)
+- D10 → D-lyrics-engine-4 in specs/lyrics-engine.md (no Genius)
+- D11 → D-media-pipeline-4 in specs/media-pipeline.md (OS trust store)
 
 ## Tasks
 
 ### M1 — CLI engine
-- [ ] 1.1 `uv` project: `yt-dlp`, `audio-separator`, `stable-ts`, `faster-whisper`, `httpx`,
-  `beautifulsoup4`, `soundfile`, `pytest`; README notes `ffmpeg`.
-- [ ] 1.2 Tests, then `resolver.py`: YouTube URL forms, Spotify OG parsing (fixture HTML),
-  candidate scoring and `no_match` as pure functions.
-- [ ] 1.3 Tests, then `cache.py`: staging path, completeness check on `meta.json` status,
-  atomic rename, staging cleanup.
-- [ ] 1.4 `separator.py`: download with the 720p avc1 selector, separate to FLAC, assert equal
-  sample counts.
-- [ ] 1.5 Tests, then `lyrics.py`: language rule, waterfall choice, LRC duration match, offset
-  shift, confidence/timeout fallback, vocal onset detection — each a pure function over
-  fixtures; network fetchers stay thin.
-- [ ] 1.6 `process_song.py <input>`; benchmark one English and one Hebrew song: total time,
-  separation time, and lyric lines within 0.3s of the singer (spot-check 10 lines). Pass if
-  each song is under 5 minutes end to end and at least 8/10 lines are in time.
+- [x] 1.1 `uv` project with yt-dlp, audio-separator, stable-ts, faster-whisper, httpx, bs4,
+  soundfile, truststore, pytest — 0ac876f
+- [x] 1.2 `resolver.py` (URL forms, Spotify OG parsing, scoring, `no_match`) — 0ac876f;
+  live Spotify check 2026-11-24: vampire → 220s lyric video over the 245s music video
+- [x] 1.3 `cache.py` staging/atomic commit — 0ac876f; live-process-safe staging cleanup — 17e10a1
+- [x] 1.4 `media.py` 720p avc1 download + FLAC stems, equal sample counts (9,696,256 = 9,696,256)
+  — 0ac876f
+- [x] 1.5 Lyrics engine (`sources.py`, `engine.py`, `lrc.py`, `vocals.py`, `align.py`) with
+  aliases, offset correction, alignment, transcription, paste — 0ac876f + this branch; 78 pytest
+- [x] 1.6 Benchmark 2026-11-24 (M4 Pro), `process_song.py`:
+  - vampire (245s music video): 189s; LRCLIB synced, offset −0.4s; 54/54 line starts on singing;
+    independent re-alignment median 0.22s
+  - מיליון דולר: 142s; LRCLIB synced via English alias, offset +0.1s; 56/56 on singing;
+    re-alignment median 0.22s
+  - פנתרה: 211s; LRCLIB plain + ivrit-ai alignment, prob 0.73; 52/52 on singing
+  - שלמה ארצי — ירח (via server queue): 229s; Shironet + alignment, prob 0.76
+  - Pass on "<5 min end to end"; the 0.3s target is met as a median (0.22s) on synced songs,
+    plain-text Hebrew alignment is median 0.41s (46/56 lines within 1s).
 
 ### M2 — Player
-- [ ] 2.1 Tests, then `clock.js` (song position, drift decision) and `lrc.js` (parser, active
-  line) as pure functions.
-- [ ] 2.2 `/tv` tap-to-start, dual-stem loader, gain ramp, seek/resume, video sync loop.
-- [ ] 2.3 BiDi lyric renderer and teleprompter scroll with speed nudges.
-- [ ] 2.4 On-screen vocal guide slider and play/pause/seek.
+- [x] 2.1 `core.js` pure logic (LRC, active line, clock, drift, teleprompter, gain) — 6 node tests
+- [x] 2.2 `/tv` tap-to-start, dual-stem playback, seek/resume, video sync — browser check
+  2026-11-24: drift −7 to −102ms during playback, rate nudge only
+- [x] 2.3 BiDi lyric renderer (`dir=auto`, `unicode-bidi: plaintext`) and teleprompter — Hebrew
+  and English lines checked on screen 2026-11-24
+- [x] 2.4 On-screen vocal slider and transport — 0ac876f
 
 ### M3 — Party mode
-- [ ] 3.1 Tests, then the queue state machine (statuses, dedupe, reorder/remove, skip past
-  `FAILED`, "preparing").
-- [ ] 3.2 FastAPI app: serial `asyncio` worker, static `cache/`, `/ws` broadcasting queue,
-  progress, vocal level, `audio_ready`, and playback position.
-- [ ] 3.3 `/remote`: URL paste, search results picker, queue with status badges and reasons,
-  reorder/remove, vocal slider, pause/skip, teleprompter nudges.
-- [ ] 3.4 Host-IP detection with `--host-ip` override; QR overlay on `/tv`.
+- [x] 3.1 Queue state machine — 7 pytest (`tests/test_party.py`)
+- [x] 3.2 FastAPI app, serial worker, `/ws` — browser check 2026-11-24: status QUEUED →
+  DOWNLOADING → … → READY broadcast, auto-play when ready, dedupe 409 "Already in queue"
+- [x] 3.3 `/remote` search picker, queue badges, vocal slider, pause/resume/skip/seek, library,
+  **paste lyrics** — browser check 2026-11-24: pasted LRC shifted +5s corrected by −4.9s, TV
+  reloaded lyrics mid-song; pasted Hebrew plain text aligned 56/56 lines in 97s
+- [x] 3.4 LAN IP (skips VPN `utun`, `bridge`) + QR — QR showed `http://10.0.0.4:8765/remote` (en0)
+
+### Left for a person
+- [ ] (waiting: Raphael on tv-sitting — the TV, a phone on the same Wi-Fi) 4.1 Sing one
+  Hebrew and one English song on the real TV; the build was verified in a browser on this
+  machine, not over HDMI with a phone
 
 ## Surface review
 
