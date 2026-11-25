@@ -23,8 +23,9 @@ The engine derives artist and title from the YouTube metadata, plus aliases lyri
 
 ### Lyrics waterfall
 
-The engine tries, in order: synced lyrics, plain text aligned to the vocals, transcription of the
-vocals. Playback never waits on lyrics after `READY`.
+The engine tries, in order: synced lyrics, then plain text aligned to the vocals. It never makes
+lyrics up from the audio: a song with no lyrics found waits for a guest to paste them
+(D-lyrics-engine-9). Playback never waits on lyrics after `READY`.
 
 - WHEN LRCLIB (searched under every title/artist alias) returns synced lyrics with a matching title
   and artist whose duration is within ±2s of the audio THEN they are shifted by the offset that best
@@ -37,19 +38,20 @@ vocals. Playback never waits on lyrics after `READY`.
   to `vocals.flac` with stable-ts, every word gets a time anchored on the confident words
   (D-lyrics-engine-6), `lyrics.lrc` is written in enhanced LRC (`[mm:ss.xx]<mm:ss.xx>word …`), and
   `lyrics_mode` is `aligned`.
-- WHEN alignment raises, runs past 300s, or anchors fewer than 35% of the words in order THEN Whisper
-  transcribes the vocal stem instead (`transcribed`, with word times); only if that also fails is the
-  text shown as a `teleprompter`.
-- WHEN no lyrics text is found THEN Whisper transcribes the vocal stem into timed lines with word times
-  and `lyrics_mode` is `transcribed`.
+- WHEN alignment raises, runs past 300s, or anchors fewer than 35% of the words in order THEN the
+  text is shown as a `teleprompter`.
+- WHEN no lyrics text is found THEN `lyrics_mode` is `none`; nothing is transcribed.
 - `process_song.py --relyric-all` re-runs this for every cached song, keeping pasted lyrics (pasted
   synced lyrics without word times get them added).
-- WHEN nothing works THEN `lyrics_mode` is `none` and the song still plays.
+- WHEN `lyrics_mode` is `none` THEN the song still plays and the TV asks for the lyrics to be pasted.
 - `meta.json` always records `vocal_start` and `vocal_end`, the first and last vocal activity.
 
 ### Pasted lyrics
 
 A guest can replace a ready song's lyrics from `/remote`.
+
+- WHEN a song in the library has `lyrics_mode` `none` THEN the remote's paste box lists it first,
+  marked "(no lyrics)", preselects it, and opens by itself when that song is playing.
 
 - WHEN the paste has 3 or more timestamped LRC lines THEN it is offset-corrected like LRCLIB lyrics,
   gets word times the same way unless it already has them, and `lyrics_mode` is `synced`.
@@ -81,10 +83,7 @@ A guest can replace a ready song's lyrics from `/remote`.
   by character position between anchors. Against a Whisper transcription of the vocals: median
   0.20s, 30 lines within 0.5s, 5 over 2s. The quality gate is the share of words anchored (≥ 35%), not
   mean probability: "עטור מצחך" (a live recording with talking) had 4% anchors, all in its first 11s,
-  so it is transcribed instead; "פנתרה" 74%, "ירח" 67%.
-- **D-lyrics-engine-7 — No Silero VAD in transcription.** stable-ts downloads it from GitHub at run
-  time, which fails behind TLS-inspecting proxies; its built-in loudness-based silence detection is
-  enough on an isolated vocal stem.
+  so it is not trusted; "פנתרה" 74%, "ירח" 67%.
 - **D-lyrics-engine-8 — Synced lyrics get word times inside their line windows.** Hand-synced line
   starts are better than the aligner's, so they stay; the aligner only places words within them.
   A line's first word starts at the line start, and a confident word (probability ≥ 0.5) is an
@@ -92,3 +91,8 @@ A guest can replace a ready song's lyrics from `/remote`.
   into a neighbouring line can't drag it. Words after the last anchor run on at the song's singing
   rate and are squeezed to end 0.15s before the next line. Rejects replacing synced lines with the
   aligned ones (their line starts are worse: median 0.29s off on "vampire", D-lyrics-engine-3).
+- **D-lyrics-engine-9 — No transcription; guests paste missing lyrics.** Whisper transcriptions of
+  sung vocals mishear words, and wrong words on screen are worse for karaoke than none. A song with
+  no lyrics found is `none`, and the TV and remote ask for a paste, which is then aligned. Whisper
+  still detects the language and aligns known text. Removing it also drops the Silero VAD download
+  that broke transcription behind TLS-inspecting proxies (formerly D-lyrics-engine-7).

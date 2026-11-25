@@ -65,12 +65,12 @@ uv run python process_song.py --relyric-all   # redo lyrics for every cached son
    recording length matches, and shifted to the singer's first notes (videos often have longer intros).
 2. **Plain text + forced alignment** — LRCLIB plain lyrics or Shironet (Hebrew), aligned to the
    isolated vocal track with Whisper (`ivrit-ai` model for Hebrew).
-3. **Transcription** — Whisper transcribes the isolated vocals when no lyrics text is found.
-4. **Paste lyrics** — on the remote, "Lyrics wrong or missing? Paste them": plain text is aligned
+3. **Paste lyrics** — on the remote, "Lyrics wrong or missing? Paste them": plain text is aligned
    automatically; LRC is shifted to fit the video.
 
-If too few words align, the vocals are transcribed instead; if that fails too, the TV shows a
-scrolling teleprompter with speed controls.
+If too few words align, the TV shows the text as a scrolling teleprompter with speed controls.
+The app never transcribes lyrics from the audio: when none are found, the TV says so and the remote
+puts that song first in the paste box.
 
 ## Test
 
