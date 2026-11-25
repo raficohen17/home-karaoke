@@ -12,26 +12,52 @@ follow the singer. Guests queue songs from their phones by scanning a QR code.
 
 ## Run
 
-Needs macOS or Linux, [`uv`](https://docs.astral.sh/uv/), and `ffmpeg` on `PATH`.
+Needs macOS or Linux, [`uv`](https://docs.astral.sh/uv/) and `ffmpeg` on `PATH`
+(`brew install ffmpeg` on macOS, `sudo apt install ffmpeg` on Debian/Ubuntu). Node is needed only
+to run the JavaScript tests.
 
 ```bash
+git clone https://github.com/raficohen17/home-karaoke.git
+cd home-karaoke
 uv sync
 uv run python -m karaoke.server            # http://<this-machine>:8765
 ```
 
+On start the server prints three links: the TV page on this computer, a TV link for another
+device, and the guest link that the QR code carries.
+
 1. On the machine connected to the TV, open `http://localhost:8765/tv` full screen and tap **Tap to start**.
-2. Guests scan the QR code (or open `/remote`), search for a song, and tap the right result.
-3. The first song takes about 2–3 minutes to prepare; later songs are prepared while the current one plays.
+   To use a smart TV or another computer as the TV instead, open the printed
+   `http://<this-machine>:8765/tv?tv=...` link on it. Only one TV plays at a time.
+2. Guests scan the QR code on the TV, search for a song, and tap the right result. Phones must be on
+   the same Wi-Fi as the computer running the server. On macOS, allow incoming connections when the
+   firewall asks.
+3. A song takes about 2–3 minutes to prepare; later songs are prepared while the current one plays.
 
-Options: `--fast` (vocal removal in ~35s instead of ~1.5min, lower quality), `--host-ip 192.168.1.20`
-(the address in the QR code, if auto-detection picks the wrong network), `--port`.
+**First run is slow.** The vocal-removal model and the Whisper models (English, and `ivrit-ai` for
+Hebrew) download the first time they're needed: about 2.5 GB into `models/` for vocal removal, plus
+the Whisper models in the Hugging Face cache. Expect the first song to take several extra minutes.
 
-Process a single song without the server:
+The party keys change every time the server starts, so guests rescan the QR code after a restart.
+
+Server options:
+
+| Flag | Meaning |
+|---|---|
+| `--port 8765` | Port to listen on |
+| `--host-ip 192.168.1.20` | Address put in the QR code, if auto-detection picks the wrong network |
+| `--fast` | Vocal removal in ~35s instead of ~1.5min, lower quality |
+| `--cache cache` | Folder where prepared songs are stored |
+
+Process songs without the server:
 
 ```bash
-uv run python process_song.py "olivia rodrigo vampire"
-uv run python process_song.py --restem-all   # redo vocal removal for every cached song
+uv run python process_song.py "olivia rodrigo vampire"   # one song, by name or link
+uv run python process_song.py --restem-all    # redo vocal removal for every cached song (keeps lyrics)
+uv run python process_song.py --relyric-all   # redo lyrics for every cached song (keeps pasted ones)
 ```
+
+`process_song.py` takes `--fast` and `--cache` too.
 
 ## How lyrics are found
 
@@ -43,7 +69,8 @@ uv run python process_song.py --restem-all   # redo vocal removal for every cach
 4. **Paste lyrics** — on the remote, "Lyrics wrong or missing? Paste them": plain text is aligned
    automatically; LRC is shifted to fit the video.
 
-If alignment confidence is low, the TV shows a scrolling teleprompter with speed controls.
+If too few words align, the vocals are transcribed instead; if that fails too, the TV shows a
+scrolling teleprompter with speed controls.
 
 ## Test
 

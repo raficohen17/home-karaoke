@@ -163,41 +163,11 @@ def anchor_words(
     at least two anchors; with fewer, nothing can be anchored and an empty list is returned.
     """
     text = "\n".join(lines)
-    tokens = [(m.start(), m.end(), m.group(0)) for m in re.finditer(r"\S+", text)]
+    tokens, tok_time, tok_prob = _token_times(text, words)
     if not tokens:
         if stats is not None:
             stats.update(anchors=0, tokens=0, coverage=0.0)
         return []
-    # locate aligner words by character position (same rule as map_words_to_lines)
-    located: list[tuple[int, float, float]] = []
-    cursor = 0
-    for t, w, p in words:
-        w = w.strip()
-        m = _WORDCHAR.search(w)
-        if not m:
-            continue
-        core = w[m.start():]
-        idx = text.find(core, cursor)
-        if idx < 0:
-            first = re.match(r"\w+", core).group(0)
-            idx = text.find(first, cursor)
-            if idx < 0:
-                continue
-        located.append((idx, t, p))
-        cursor = idx + 1
-    # token time/confidence = its first located word
-    tok_time: list[float | None] = [None] * len(tokens)
-    tok_prob = [0.0] * len(tokens)
-    j = 0
-    for i, (lo, hi, _) in enumerate(tokens):
-        while j < len(located) and located[j][0] < lo:
-            j += 1
-        k = j
-        while k < len(located) and located[k][0] < hi:
-            if tok_time[i] is None:
-                tok_time[i] = located[k][1]
-            tok_prob[i] = max(tok_prob[i], located[k][2])
-            k += 1
     anchors = monotonic_anchors(
         [(tokens[i][0], tok_time[i]) for i in range(len(tokens)) if tok_time[i] is not None and tok_prob[i] >= min_prob]
     )
@@ -217,6 +187,128 @@ def anchor_words(
             out.append(Line(ws[0][0], line, tuple(ws)))
         pos = hi + 1
     return out
+
+
+
+def _locate(text: str, words: list[tuple[float, str, float]]) -> list[tuple[int, float, float]]:
+    """(char index of the word's first letter, time, probability) for each aligner word found in
+    text, searching forward only. Punctuation-only words are skipped (same rule as map_words_to_lines)."""
+    located: list[tuple[int, float, float]] = []
+    cursor = 0
+    for t, w, p in words:
+        w = w.strip()
+        m = _WORDCHAR.search(w)
+        if not m:
+            continue
+        core = w[m.start():]
+        idx = text.find(core, cursor)
+        if idx < 0:
+            first = re.match(r"\w+", core).group(0)
+            idx = text.find(first, cursor)
+            if idx < 0:
+                continue
+        located.append((idx, t, p))
+        cursor = idx + 1
+    return located
+
+
+def _token_times(text: str, words: list[tuple[float, str, float]]):
+    """Whitespace tokens of text with the time of the first aligner word inside each (or None)
+    and the best probability among them."""
+    tokens = [(m.start(), m.end(), m.group(0)) for m in re.finditer(r"\S+", text)]
+    located = _locate(text, words)
+    tok_time: list[float | None] = [None] * len(tokens)
+    tok_prob = [0.0] * len(tokens)
+    j = 0
+    for i, (lo, hi, _) in enumerate(tokens):
+        while j < len(located) and located[j][0] < lo:
+            j += 1
+        k = j
+        while k < len(located) and located[k][0] < hi:
+            if tok_time[i] is None:
+                tok_time[i] = located[k][1]
+            tok_prob[i] = max(tok_prob[i], located[k][2])
+            k += 1
+    return tokens, tok_time, tok_prob
+
+
+SYNCED_MIN_COVERAGE = 0.35  # share of words aligned inside their own line needed to add word times
+DEFAULT_SEC_PER_CHAR = 0.07  # used when no line has two anchors to measure the singing rate from
+
+
+def words_in_synced(
+    lines: list[Line], words: list[tuple[float, str, float]], min_prob: float = ANCHOR_PROB,
+    min_coverage: float = SYNCED_MIN_COVERAGE, stats: dict | None = None,
+) -> list[Line]:
+    """Add per-word times to synced lyrics, keeping every line's start time.
+
+    Synced line starts are trusted (hand-made). Each line's first word starts at its line start;
+    other confident aligner words become anchors only inside their own line's window (line start to
+    next line start), so a word the aligner placed in another line can't pull it. Words between
+    anchors are interpolated by character position; words after a line's last anchor run on at the
+    singing rate and are squeezed to finish before the next line. When too few words align inside
+    their lines (coverage below min_coverage) the lines are returned unchanged.
+    """
+    text = "\n".join(line.text for line in lines)
+    tokens, tok_time, tok_prob = _token_times(text, words)
+    spans, pos = [], 0
+    for line in lines:
+        spans.append((pos, pos + len(line.text)))
+        pos += len(line.text) + 1
+    per_line: list[tuple[list[int], list[tuple[int, float]], float]] = []  # (token ids, chain, window end)
+    confident, ti = 0, 0
+    for i, ((lo, hi), line) in enumerate(zip(spans, lines)):
+        ids = []
+        while ti < len(tokens) and tokens[ti][0] < hi:
+            ids.append(ti)
+            ti += 1
+        later = [x.t for x in lines[i + 1:] if x.t > line.t]
+        end = later[0] if later else line.t + 10.0
+        if not ids:
+            per_line.append((ids, [], end))
+            continue
+        good = [k for k in ids if tok_time[k] is not None and tok_prob[k] >= min_prob and line.t - 0.5 <= tok_time[k] < end]
+        confident += sum(1 for k in good if k == ids[0])
+        start = (tokens[ids[0]][0], line.t)
+        chain = monotonic_anchors([start] + [(tokens[k][0], tok_time[k]) for k in good if k != ids[0]])
+        if chain[0] != start:
+            chain = [start] + [c for c in chain if c[1] >= line.t + 0.05]
+        confident += len(chain) - 1
+        per_line.append((ids, chain, end))
+    coverage = confident / len(tokens) if tokens else 0.0
+    if stats is not None:
+        stats.update(tokens=len(tokens), anchors=confident, coverage=coverage)
+    if coverage < min_coverage:
+        return list(lines)
+    rates = sorted(
+        (c[-1][1] - c[0][1]) / (c[-1][0] - c[0][0]) for _, c, _ in per_line if len(c) >= 2 and c[-1][0] > c[0][0]
+    )
+    global_rate = rates[len(rates) // 2] if rates else DEFAULT_SEC_PER_CHAR
+    out = []
+    for (ids, chain, end), line in zip(per_line, lines):
+        if not ids:
+            out.append(line)
+            continue
+        out.append(Line(line.t, line.text, tuple(zip(_line_word_times([tokens[k][0] for k in ids], chain, end, global_rate),
+                                                     (tokens[k][2] for k in ids)))))
+    return out
+
+
+def _line_word_times(positions: list[int], chain: list[tuple[int, float]], end: float, global_rate: float) -> list[float]:
+    """Word times for one synced line: interpolated inside the anchor chain, extrapolated after its
+    last anchor at the line's own rate (or the song's), squeezed to end 0.15s before `end`."""
+    last_c, last_t = chain[-1]
+    rate = (last_t - chain[0][1]) / (last_c - chain[0][0]) if len(chain) >= 2 and last_c > chain[0][0] else global_rate
+    cap = max(last_t, end - 0.15)
+    tail = [p for p in positions if p > last_c]
+    over = last_t + (tail[-1] - last_c) * rate if tail else last_t
+    scale = (cap - last_t) / (over - last_t) if over > cap and over > last_t else 1.0
+    times, prev = [], chain[0][1]
+    for p in positions:
+        t = interpolate(chain, p) if p <= last_c else last_t + (p - last_c) * rate * scale
+        prev = max(prev, t)
+        times.append(round(prev, 2))
+    return times
 
 
 def monotonic_anchors(points: list[tuple[int, float]], min_gap: float = 0.05) -> list[tuple[int, float]]:

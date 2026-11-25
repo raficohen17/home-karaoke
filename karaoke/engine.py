@@ -85,7 +85,8 @@ def build_lyrics(meta: dict, vocals_path: Path, progress=None) -> LyricsResult:
     if synced:
         lines, off = correct_synced(lrc.parse_lrc(synced.synced), act, vocals.HOP)
         if lines:
-            res.mode, res.lines, res.source, res.offset = "synced", lines, "lrclib", off
+            res.mode, res.source, res.offset = "synced", "lrclib", off
+            res.lines, res.align_coverage = add_word_times(lines, vocals_path, language)
             return res
 
     text, src = (plain.plain, "lrclib") if plain else (None, None)
@@ -138,6 +139,27 @@ def transcribe_into(res: LyricsResult, vocals_path: Path, language: str) -> bool
     return True
 
 
+def add_word_times(lines: list[Line], vocals_path: Path, language: str) -> tuple[list[Line], float | None]:
+    """Synced lines plus per-word times from the aligner (D-lyrics-engine-8); line starts never move.
+
+    Returns (lines, coverage). Lines that already carry word times (pasted enhanced LRC) are kept
+    as they are; on failure or low coverage the lines come back with line times only.
+    """
+    from . import align
+
+    if not lines or any(line.words for line in lines):
+        return lines, None
+    try:
+        words, _ = _with_timeout(align.align_words, ALIGN_TIMEOUT, vocals_path, "\n".join(l.text for l in lines), language)
+    except Exception as e:
+        log.warning("word alignment of synced lyrics failed: %s", e)
+        return lines, None
+    stats: dict = {}
+    out = lrc.words_in_synced(lines, words, stats=stats)
+    log.info("synced word timing: coverage %.2f", stats.get("coverage", 0.0))
+    return out, stats.get("coverage")
+
+
 def timed_lines(lines_text: list[str], words: list[tuple[float, str, float]], stats: dict | None = None) -> list[Line]:
     """Per-word times anchored on confident words (D-lyrics-engine-6); line-level mapping when
     fewer than two words are confident. Shifted by ALIGNED_LEAD."""
@@ -161,7 +183,8 @@ def lyrics_from_paste(text: str, vocals_path: Path, language: str | None = None)
     language = language or guess_language(text) or "en"
     res = LyricsResult(mode="none", vocal_start=v_start, vocal_end=v_end, language=language, source="pasted")
     if classify_pasted(text) == "lrc":
-        res.lines, res.offset = correct_synced(lrc.parse_lrc(text), act, vocals.HOP)
+        lines, res.offset = correct_synced(lrc.parse_lrc(text), act, vocals.HOP)
+        res.lines, res.align_coverage = add_word_times(lines, vocals_path, language)
         res.mode = "synced"
         return res
     lines_text = lrc.plain_lines(text)

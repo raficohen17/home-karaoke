@@ -75,7 +75,8 @@ def replace_lyrics(video_id: str, cache: Cache, text: str) -> dict:
     if res.mode == "none":
         raise ValueError("no lyric lines in the pasted text")
     engine.write_lyrics(res, d)
-    meta.update(lyrics_mode=res.mode, lyrics_source="pasted", lyrics_offset=res.offset, align_prob=res.align_prob)
+    meta.update(lyrics_mode=res.mode, lyrics_source="pasted", lyrics_offset=res.offset, align_prob=res.align_prob,
+                align_coverage=res.align_coverage)
     write_meta(d, meta)
     return meta
 
@@ -122,7 +123,7 @@ def redo_lyrics(video_id: str, cache: Cache) -> dict:
         raise FileNotFoundError(f"{video_id} is not a complete cached song")
     meta = cache.read_meta(video_id)
     if meta.get("lyrics_source") == "pasted":
-        return meta
+        return _add_words_to_pasted(d, meta)
     t = time.time()
     res = engine.build_lyrics(meta, d / "vocals.flac")
     engine.write_lyrics(res, d)
@@ -132,5 +133,22 @@ def redo_lyrics(video_id: str, cache: Cache) -> dict:
         vocal_end=res.vocal_end,
     )
     meta.setdefault("timings", {})["lyrics"] = round(time.time() - t, 1)
+    write_meta(d, meta)
+    return meta
+
+
+def _add_words_to_pasted(d: Path, meta: dict) -> dict:
+    """Pasted lyrics are kept, but pasted synced lines without word times get them added."""
+    from . import lrc
+    from .cache import write_meta
+
+    f = d / "lyrics.lrc"
+    if meta.get("lyrics_mode") != "synced" or not f.exists():
+        return meta
+    lines = lrc.parse_lrc(f.read_text("utf-8"))
+    out, coverage = engine.add_word_times(lines, d / "vocals.flac", meta.get("language") or "en")
+    if out is not lines and any(line.words for line in out):
+        f.write_text(lrc.format_lrc(out), "utf-8")
+    meta["align_coverage"] = coverage
     write_meta(d, meta)
     return meta
