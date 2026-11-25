@@ -30,6 +30,9 @@ vocals. Playback never waits on lyrics after `READY`.
   and artist whose duration is within ±2s of the audio THEN they are shifted by the offset that best
   lines the lyric lines up with vocal activity in `vocals.flac` (D-lyrics-engine-1), written to
   `lyrics.lrc`, and `lyrics_mode` is `synced`.
+- WHEN lyrics are synced THEN the line text is also aligned to `vocals.flac` and each word gets a
+  time inside its own line (D-lyrics-engine-8); line start times never move. WHEN fewer than 35% of
+  the words align inside their lines, or alignment fails, THEN the lines keep line times only.
 - WHEN no synced lyrics fit THEN plain text from LRCLIB (any duration) or, for `he`, Shironet is aligned
   to `vocals.flac` with stable-ts, every word gets a time anchored on the confident words
   (D-lyrics-engine-6), `lyrics.lrc` is written in enhanced LRC (`[mm:ss.xx]<mm:ss.xx>word …`), and
@@ -39,7 +42,8 @@ vocals. Playback never waits on lyrics after `READY`.
   text shown as a `teleprompter`.
 - WHEN no lyrics text is found THEN Whisper transcribes the vocal stem into timed lines with word times
   and `lyrics_mode` is `transcribed`.
-- `process_song.py --relyric-all` re-runs this for every cached song, keeping pasted lyrics.
+- `process_song.py --relyric-all` re-runs this for every cached song, keeping pasted lyrics (pasted
+  synced lyrics without word times get them added).
 - WHEN nothing works THEN `lyrics_mode` is `none` and the song still plays.
 - `meta.json` always records `vocal_start` and `vocal_end`, the first and last vocal activity.
 
@@ -47,8 +51,8 @@ vocals. Playback never waits on lyrics after `READY`.
 
 A guest can replace a ready song's lyrics from `/remote`.
 
-- WHEN the paste has 3 or more timestamped LRC lines THEN it is offset-corrected like LRCLIB lyrics and
-  `lyrics_mode` is `synced`.
+- WHEN the paste has 3 or more timestamped LRC lines THEN it is offset-corrected like LRCLIB lyrics,
+  gets word times the same way unless it already has them, and `lyrics_mode` is `synced`.
 - WHEN the paste is plain text THEN it is aligned to the vocals (or becomes a teleprompter when
   alignment is weak), `lyrics_source` is `pasted`, and the TV reloads the lyrics without restarting
   the song.
@@ -81,3 +85,10 @@ A guest can replace a ready song's lyrics from `/remote`.
 - **D-lyrics-engine-7 — No Silero VAD in transcription.** stable-ts downloads it from GitHub at run
   time, which fails behind TLS-inspecting proxies; its built-in loudness-based silence detection is
   enough on an isolated vocal stem.
+- **D-lyrics-engine-8 — Synced lyrics get word times inside their line windows.** Hand-synced line
+  starts are better than the aligner's, so they stay; the aligner only places words within them.
+  A line's first word starts at the line start, and a confident word (probability ≥ 0.5) is an
+  anchor only when it falls between its line's start and the next line's start, so a word aligned
+  into a neighbouring line can't drag it. Words after the last anchor run on at the song's singing
+  rate and are squeezed to end 0.15s before the next line. Rejects replacing synced lines with the
+  aligned ones (their line starts are worse: median 0.29s off on "vampire", D-lyrics-engine-3).

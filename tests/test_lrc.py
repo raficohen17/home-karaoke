@@ -148,3 +148,46 @@ def test_anchor_words_times_a_line_with_no_confident_words():
 
 def test_anchor_words_needs_two_anchors():
     assert anchor_words(["a b"], [(1.0, "a", 0.9), (2.0, "b", 0.2)]) == []
+
+
+from karaoke.lrc import words_in_synced  # noqa: E402
+
+
+def test_words_in_synced_keeps_line_starts_and_times_words():
+    lines = [Line(10.0, "aa bb cc"), Line(20.0, "dd ee")]
+    words = [(10.2, "aa", 0.9), (11.0, "bb", 0.9), (12.0, "cc", 0.9), (20.1, "dd", 0.9), (21.0, "ee", 0.9)]
+    out = words_in_synced(lines, words)
+    assert [l.t for l in out] == [10.0, 20.0]
+    assert [t for t, _ in out[0].words] == [10.0, 11.0, 12.0]  # first word never before or after its line start
+    assert [w for _, w in out[1].words] == ["dd", "ee"]
+    assert out[1].words[1][0] == 21.0
+
+
+def test_words_in_synced_ignores_words_outside_their_line():
+    lines = [Line(10.0, "aa bb"), Line(20.0, "cc dd")]
+    # "bb" aligned into the next line's window: not trusted, interpolated inside line 1 instead
+    words = [(10.0, "aa", 0.9), (25.0, "bb", 0.9), (20.0, "cc", 0.9), (21.0, "dd", 0.9)]
+    out = words_in_synced(lines, words)
+    assert 10.0 < out[0].words[1][0] < 20.0
+
+
+def test_words_in_synced_spreads_unaligned_line_within_its_window():
+    lines = [Line(10.0, "aa bb"), Line(12.0, "cc dd ee ff gg hh ii jj"), Line(14.0, "kk ll")]
+    words = [(10.0, "aa", 0.9), (10.5, "bb", 0.9), (14.0, "kk", 0.9), (14.5, "ll", 0.9)]
+    out = words_in_synced(lines, words, min_coverage=0.0)
+    ts = [t for t, _ in out[1].words]
+    assert ts[0] == 12.0 and ts == sorted(ts) and ts[-1] < 14.0
+
+
+def test_words_in_synced_gates_on_coverage():
+    lines = [Line(1.0, "aa bb cc dd"), Line(5.0, "ee ff gg hh")]
+    stats: dict = {}
+    out = words_in_synced(lines, [(1.0, "aa", 0.9)], stats=stats)
+    assert out == lines and stats["coverage"] < 0.35
+
+
+def test_words_in_synced_repeated_lines_each_get_words():
+    lines = [Line(10.0, "la la"), Line(20.0, "la la")]
+    words = [(10.0, "la", 0.9), (10.5, "la", 0.9), (20.0, "la", 0.9), (20.6, "la", 0.9)]
+    out = words_in_synced(lines, words)
+    assert [t for t, _ in out[1].words] == [20.0, 20.6]

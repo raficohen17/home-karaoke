@@ -163,3 +163,35 @@ def test_vote_language():
     assert vote_language(w) == "he"
     assert vote_language([[("en", 0.9)], [("en", 0.8), ("he", 0.1)]]) == "en"
     assert vote_language([]) == "en"
+
+
+def test_synced_lyrics_get_word_times_and_keep_line_starts(monkeypatch, tmp_path):
+    import soundfile as sf
+    from karaoke import align, sources
+
+    sr = 8000
+    sig = np.zeros(sr * 10, dtype=np.float32); sig[sr * 2: sr * 8] = 0.3
+    sf.write(str(tmp_path / "v.flac"), sig, sr)
+    synced = "[00:02.00]one two\n[00:05.00]three four"
+    monkeypatch.setattr(sources, "fetch_lrclib", lambda name, d=None: [sources.LrclibHit("song", "singer", 10.0, synced, None)])
+    monkeypatch.setattr(engine, "correct_synced", lambda lines, act, hop: (lines, 0.0))
+    monkeypatch.setattr(align, "detect_language", lambda *a: "en")
+    monkeypatch.setattr(align, "align_words", lambda v, text, lang: (
+        [(2.1, "one", 0.9), (2.6, "two", 0.9), (5.0, "three", 0.9), (5.7, "four", 0.9)], 0.9))
+    res = engine.build_lyrics({"title": "singer - song", "channel": "x", "duration": 10}, tmp_path / "v.flac")
+    assert res.mode == "synced" and [l.t for l in res.lines] == [2.0, 5.0]
+    assert res.lines[0].words == ((2.0, "one"), (2.6, "two")) and res.lines[1].words[1] == (5.7, "four")
+    assert res.align_coverage == 1.0
+
+
+def test_synced_lyrics_survive_alignment_failure(monkeypatch, tmp_path):
+    from karaoke import align
+
+    def boom(*a):
+        raise RuntimeError("model missing")
+
+    monkeypatch.setattr(align, "align_words", boom)
+    lines = [Line(1.0, "a b"), Line(2.0, "c")]
+    assert engine.add_word_times(lines, tmp_path / "v.flac", "en") == (lines, None)
+    with_words = [Line(1.0, "a", ((1.0, "a"),))]
+    assert engine.add_word_times(with_words, tmp_path / "v.flac", "en") == (with_words, None)
