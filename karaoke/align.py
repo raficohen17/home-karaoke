@@ -1,4 +1,4 @@
-"""Forced alignment and language detection on the vocal stem with stable-ts + faster-whisper (D3)."""
+"""Language detection on the vocal stem with faster-whisper (via stable-ts). Alignment is in ctc_align."""
 from __future__ import annotations
 
 import os
@@ -22,19 +22,6 @@ def _model(language: str):
         return stable_whisper.load_faster_whisper(name, device="cpu", compute_type="int8", cpu_threads=CPU_THREADS, local_files_only=True)
     except Exception:
         return stable_whisper.load_faster_whisper(name, device="cpu", compute_type="int8", cpu_threads=CPU_THREADS)
-
-
-def align_words(vocals: Path, text: str, language: str) -> tuple[list[tuple[float, str, float]], float]:
-    """Align text to the vocal stem. Return ([(start, word, probability)], mean word probability)."""
-    model = _model(language)
-    result = model.align(str(vocals), text, language=language)
-    words = [
-        (float(w.start), w.word.strip(), float(w.probability or 0.0))
-        for w in result.all_words()
-        if w.word.strip()
-    ]
-    probs = [p for _, _, p in words]
-    return words, (sum(probs) / len(probs) if probs else 0.0)
 
 
 def detect_language(vocals: Path, start: float | None = None, end: float | None = None) -> str:

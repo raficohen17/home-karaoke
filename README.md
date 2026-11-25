@@ -12,9 +12,11 @@ follow the singer. Guests queue songs from their phones by scanning a QR code.
 
 ## Run
 
-Needs macOS or Linux, [`uv`](https://docs.astral.sh/uv/) and `ffmpeg` on `PATH`
-(`brew install ffmpeg` on macOS, `sudo apt install ffmpeg` on Debian/Ubuntu). Node is needed only
-to run the JavaScript tests.
+Needs macOS or Linux, [`uv`](https://docs.astral.sh/uv/), `ffmpeg` and [Deno](https://deno.com) on
+`PATH`: `brew install ffmpeg deno` on macOS; on Debian/Ubuntu `sudo apt install ffmpeg` and the
+[Deno installer](https://docs.deno.com/runtime/getting_started/installation/). YouTube protects many
+official music videos with a JavaScript challenge that yt-dlp solves with Deno; without it those
+videos fail to download. Node is needed only to run the JavaScript tests.
 
 ```bash
 git clone https://github.com/raficohen17/home-karaoke.git
@@ -34,9 +36,10 @@ device, and the guest link that the QR code carries.
    firewall asks.
 3. A song takes about 2–3 minutes to prepare; later songs are prepared while the current one plays.
 
-**First run is slow.** The vocal-removal model and the Whisper models (English, and `ivrit-ai` for
-Hebrew) download the first time they're needed: about 2.5 GB into `models/` for vocal removal, plus
-the Whisper models in the Hugging Face cache. Expect the first song to take several extra minutes.
+**First run is slow.** Models download the first time they're needed: about 2.5 GB into `models/`
+for vocal removal, about 1.2 GB for English lyric alignment (torch hub cache), about 4 GB for Hebrew
+lyric alignment and 1.6 GB for Whisper language detection (Hugging Face cache). Expect the first
+song to take several extra minutes.
 
 The party keys change every time the server starts, so guests rescan the QR code after a restart.
 
@@ -64,11 +67,12 @@ uv run python process_song.py --relyric-all   # redo lyrics for every cached son
 1. **LRCLIB synced lyrics** — tried under the Hebrew and English names of the song; used only if the
    recording length matches, and shifted to the singer's first notes (videos often have longer intros).
 2. **Plain text + forced alignment** — LRCLIB plain lyrics or Shironet (Hebrew), aligned to the
-   isolated vocal track with Whisper (`ivrit-ai` model for Hebrew).
+   isolated vocal track with Meta's MMS wav2vec2 aligners (Hebrew adapter for Hebrew). Synced
+   lyrics get per-word times the same way.
 3. **Paste lyrics** — on the remote, "Lyrics wrong or missing? Paste them": plain text is aligned
    automatically; LRC is shifted to fit the video.
 
-If too few words align, the TV shows the text as a scrolling teleprompter with speed controls.
+If the alignment is unsure (the lyrics may be for another version or song), the TV shows the text as a scrolling teleprompter with speed controls.
 The app never transcribes lyrics from the audio: when none are found, the TV says so and the remote
 puts that song first in the paste box.
 

@@ -100,29 +100,32 @@ def test_guess_language():
     assert engine.guess_language("Olivia Rodrigo - vampire") is None
 
 
-# coverage measured 2026-11-24: פנתרה 0.74, ירח 0.67 (good); עטור מצחך live recording 0.04 (lost)
-@pytest.mark.parametrize("cov,err,mode", [(0.74, False, "aligned"), (0.67, False, "aligned"), (0.04, False, "fallback"),
-                                          (None, False, "fallback"), (0.9, True, "fallback")])
-def test_decide_alignment(cov, err, mode):
-    assert engine.decide_alignment(cov, err) == mode
+# mean CTC confidence measured 2026-11-25: right lyrics en 0.10-0.27, he 0.39-0.75; wrong song en 0.04-0.09, he 0.24
+@pytest.mark.parametrize("conf,lang,err,mode", [
+    (0.10, "en", False, "aligned"), (0.27, "en", False, "aligned"), (0.09, "en", False, "fallback"),
+    (0.39, "he", False, "aligned"), (0.24, "he", False, "fallback"),
+    (None, "en", False, "fallback"), (0.9, "en", True, "fallback"),
+])
+def test_decide_alignment(conf, lang, err, mode):
+    assert engine.decide_alignment(conf, lang, err) == mode
 
 
-def test_low_coverage_shows_text_as_teleprompter(monkeypatch, tmp_path):
+def test_low_confidence_shows_text_as_teleprompter(monkeypatch, tmp_path):
     import soundfile as sf
-    from karaoke import align, sources
+    from karaoke import align, ctc_align, sources
 
     sr = 8000
     sig = np.zeros(sr * 10, dtype=np.float32); sig[sr * 2: sr * 8] = 0.3
     sf.write(str(tmp_path / "v.flac"), sig, sr)
     monkeypatch.setattr(sources, "fetch_lrclib", lambda name, d=None: [sources.LrclibHit("שיר", "זמר", 300.0, None, "שורה אחת\nשורה שתיים")])
-    monkeypatch.setattr(align, "align_words", lambda v, text, lang: ([(1.0, "שורה", 0.1), (9.0, "אחת", 0.1)], 0.1))
+    monkeypatch.setattr(ctc_align, "align_words", lambda v, text, lang: ([(1.0, "שורה", 0.1), (9.0, "אחת", 0.1)], 0.1))
     res = engine.build_lyrics({"title": "זמר - שיר", "channel": "x", "duration": 10}, tmp_path / "v.flac")
-    assert res.mode == "teleprompter" and res.text == "שורה אחת\nשורה שתיים" and res.align_coverage == 0.0
+    assert res.mode == "teleprompter" and res.text == "שורה אחת\nשורה שתיים" and res.align_prob == 0.1
 
 
 def test_no_lyrics_found_means_none_not_transcription(monkeypatch, tmp_path):
     import soundfile as sf
-    from karaoke import align, sources
+    from karaoke import align, ctc_align, sources
 
     sr = 8000
     sf.write(str(tmp_path / "v.flac"), np.zeros(sr * 4, dtype=np.float32), sr)
@@ -136,14 +139,14 @@ def test_no_lyrics_found_means_none_not_transcription(monkeypatch, tmp_path):
 
 def test_good_coverage_keeps_text_with_word_times(monkeypatch, tmp_path):
     import soundfile as sf
-    from karaoke import align, sources
+    from karaoke import align, ctc_align, sources
 
     sr = 8000
     sig = np.zeros(sr * 10, dtype=np.float32); sig[sr * 2: sr * 8] = 0.3
     sf.write(str(tmp_path / "v.flac"), sig, sr)
     monkeypatch.setattr(sources, "fetch_lrclib", lambda name, d=None: [sources.LrclibHit("שיר", "זמר", 300.0, None, "שורה אחת\nשורה שתיים")])
-    monkeypatch.setattr(align, "align_words", lambda v, text, lang: (
-        [(2.0, "שורה", 0.9), (2.5, "אחת", 0.9), (5.0, "שורה", 0.9), (5.5, "שתיים", 0.2)], 0.7))
+    monkeypatch.setattr(ctc_align, "align_words", lambda v, text, lang: (
+        [(2.0, "שורה", 0.9), (2.5, "אחת", 0.9), (5.0, "שורה", 0.9), (5.5, "שתיים", 0.2)], 0.7))  # all anchors
     res = engine.build_lyrics({"title": "זמר - שיר", "channel": "x", "duration": 10}, tmp_path / "v.flac")
     assert res.mode == "aligned" and [l.t for l in res.lines] == [2.0, 5.0]
     assert res.lines[1].words[1][1] == "שתיים" and 5.0 < res.lines[1].words[1][0]
@@ -180,7 +183,7 @@ def test_vote_language():
 
 def test_synced_lyrics_get_word_times_and_keep_line_starts(monkeypatch, tmp_path):
     import soundfile as sf
-    from karaoke import align, sources
+    from karaoke import align, ctc_align, sources
 
     sr = 8000
     sig = np.zeros(sr * 10, dtype=np.float32); sig[sr * 2: sr * 8] = 0.3
@@ -189,7 +192,7 @@ def test_synced_lyrics_get_word_times_and_keep_line_starts(monkeypatch, tmp_path
     monkeypatch.setattr(sources, "fetch_lrclib", lambda name, d=None: [sources.LrclibHit("song", "singer", 10.0, synced, None)])
     monkeypatch.setattr(engine, "correct_synced", lambda lines, act, hop: (lines, 0.0))
     monkeypatch.setattr(align, "detect_language", lambda *a: "en")
-    monkeypatch.setattr(align, "align_words", lambda v, text, lang: (
+    monkeypatch.setattr(ctc_align, "align_words", lambda v, text, lang: (
         [(2.1, "one", 0.9), (2.6, "two", 0.9), (5.0, "three", 0.9), (5.7, "four", 0.9)], 0.9))
     res = engine.build_lyrics({"title": "singer - song", "channel": "x", "duration": 10}, tmp_path / "v.flac")
     assert res.mode == "synced" and [l.t for l in res.lines] == [2.0, 5.0]
@@ -198,13 +201,53 @@ def test_synced_lyrics_get_word_times_and_keep_line_starts(monkeypatch, tmp_path
 
 
 def test_synced_lyrics_survive_alignment_failure(monkeypatch, tmp_path):
-    from karaoke import align
+    from karaoke import ctc_align
 
     def boom(*a):
         raise RuntimeError("model missing")
 
-    monkeypatch.setattr(align, "align_words", boom)
+    monkeypatch.setattr(ctc_align, "align_words", boom)
     lines = [Line(1.0, "a b"), Line(2.0, "c")]
     assert engine.add_word_times(lines, tmp_path / "v.flac", "en") == (lines, None)
     with_words = [Line(1.0, "a", ((1.0, "a"),))]
     assert engine.add_word_times(with_words, tmp_path / "v.flac", "en") == (with_words, None)
+
+
+def test_needs_new_word_times_only_for_another_aligners_words():
+    from karaoke import pipeline
+
+    worded = [Line(1.0, "a", ((1.0, "a"),))]
+    plain = [Line(1.0, "a")]
+    assert pipeline.needs_new_word_times({"align_coverage": 0.7}, worded)  # timed by Whisper before word_aligner existed
+    assert pipeline.needs_new_word_times({"word_aligner": "whisper"}, worded)
+    assert not pipeline.needs_new_word_times({"word_aligner": "mms-ctc"}, worded)
+    assert not pipeline.needs_new_word_times({"align_coverage": None}, worded)  # guest pasted their own word times
+    assert not pipeline.needs_new_word_times({"align_coverage": 0.7}, plain)
+
+
+@pytest.mark.parametrize("old,new,down", [
+    ("synced", "none", True), ("synced", "aligned", True), ("aligned", "teleprompter", True),
+    ("aligned", "synced", False), ("none", "aligned", False), ("aligned", "aligned", False), (None, "none", False),
+])
+def test_is_downgrade(old, new, down):
+    from karaoke import pipeline
+
+    assert pipeline.is_downgrade(old, new) is down
+
+
+def test_redo_keeps_lyrics_when_the_source_is_unreachable(monkeypatch, tmp_path):
+    import json
+
+    from karaoke import pipeline
+    from karaoke.cache import Cache
+
+    d = tmp_path / "abcdefghijk"
+    d.mkdir()
+    for f in ("video.mp4", "instrumental.flac", "vocals.flac"):
+        (d / f).write_bytes(b"x")
+    (d / "lyrics.lrc").write_text("[00:01.00]keep me\n")
+    (d / "meta.json").write_text(json.dumps({"status": "complete", "lyrics_mode": "synced", "lyrics_source": "lrclib", "language": "en"}))
+    monkeypatch.setattr(engine, "build_lyrics", lambda meta, v: engine.LyricsResult(mode="none"))
+    monkeypatch.setattr(engine, "add_word_times", lambda lines, v, lang: (lines, None))
+    meta = pipeline.redo_lyrics("abcdefghijk", Cache(tmp_path))
+    assert meta["lyrics_mode"] == "synced" and (d / "lyrics.lrc").read_text() == "[00:01.00]keep me\n"

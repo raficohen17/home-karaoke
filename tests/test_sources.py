@@ -138,3 +138,26 @@ def test_shironet_works_pages_sort_numerically():
 def test_song_name_medley_parts_are_aliases():
     n = song_name_from_youtube("עומר אדם - תגידו לה & אהבה מטורפת", "Omer Adam")
     assert "תגידו לה" in n.titles() and "אהבה מטורפת" in n.titles()
+
+
+def test_get_with_retry_survives_a_dropped_connection():
+    import httpx
+    import pytest
+
+    from karaoke.sources import get_with_retry
+
+    class Flaky:
+        def __init__(self, fails):
+            self.fails, self.calls = fails, 0
+
+        def get(self, url, **kw):
+            self.calls += 1
+            if self.calls <= self.fails:
+                raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+            return "ok"
+
+    waits = []
+    c = Flaky(2)
+    assert get_with_retry(c, "u", sleep=waits.append) == "ok" and c.calls == 3 and waits == [1.0, 2.0]
+    with pytest.raises(httpx.RemoteProtocolError):
+        get_with_retry(Flaky(3), "u", sleep=lambda s: None)
