@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 ALIGN_TIMEOUT = 300.0
 MAX_OFFSET = 30.0
-ALIGNED_LEAD = 0.0  # anchored word times already run ~0.28s early vs hand-synced LRC (vampire, D-lyrics-engine-3)
+ALIGNED_LEAD = 0.0  # CTC word times are centred on hand-synced LRC (median signed error within ±0.13s, D-lyrics-engine-10)
 
 
 @dataclass
@@ -39,17 +39,20 @@ def guess_language(*texts: str) -> str | None:
     return "he" if any(sources.has_hebrew(t or "") for t in texts) else None
 
 
-MIN_COVERAGE = 0.35  # share of words anchored in order needed to trust an alignment (D-lyrics-engine-6)
+# Mean CTC confidence needed to trust an alignment of plain text (D-lyrics-engine-10). Measured
+# 2026-11-25: right lyrics English 0.10-0.27, Hebrew 0.39-0.75; wrong song's lyrics English
+# 0.04-0.09, Hebrew 0.24. Hebrew's adapter is surer of itself, so it needs its own bar.
+MIN_CONFIDENCE = {"en": 0.10, "he": 0.33}
+ANCHOR_PROB = 0.0  # every CTC word is an anchor: its times are monotonic and exact enough (D-lyrics-engine-10)
 
 
-def decide_alignment(coverage: float | None, error: bool) -> str:
+def decide_alignment(confidence: float | None, language: str, error: bool) -> str:
     """Mode after an alignment attempt: 'aligned', or 'fallback' (show the text as a teleprompter).
 
-    Gated on anchor coverage, not mean probability: a live recording with talking between verses
-    has a low mean even where the singing aligns well, and a mean can look fine while the aligner
-    has lost the song after its first minute.
+    A forced aligner always places every word, so coverage can't tell right lyrics from wrong ones;
+    the mean confidence of the placed words can.
     """
-    if error or coverage is None or coverage < MIN_COVERAGE:
+    if error or confidence is None or confidence < MIN_CONFIDENCE.get(language, MIN_CONFIDENCE["en"]):
         return "fallback"
     return "aligned"
 
@@ -69,7 +72,7 @@ def _with_timeout(fn, timeout: float, *args):
 
 
 def build_lyrics(meta: dict, vocals_path: Path, progress=None) -> LyricsResult:
-    from . import align
+    from . import align, ctc_align
 
     name = sources.song_name_from_youtube(meta.get("title", ""), meta.get("channel", ""), meta.get("track"), meta.get("artist"))
     act = vocals.load_activity(vocals_path)
@@ -103,7 +106,7 @@ def build_lyrics(meta: dict, vocals_path: Path, progress=None) -> LyricsResult:
     if text:
         lines_text = lrc.plain_lines(text)
         try:
-            words, prob = _with_timeout(align.align_words, ALIGN_TIMEOUT, vocals_path, "\n".join(lines_text), language)
+            words, prob = _with_timeout(ctc_align.align_words, ALIGN_TIMEOUT, vocals_path, "\n".join(lines_text), language)
             err = False
         except Exception as e:
             log.warning("alignment failed: %s", e)
@@ -113,10 +116,10 @@ def build_lyrics(meta: dict, vocals_path: Path, progress=None) -> LyricsResult:
         stats: dict = {}
         lines = timed_lines(lines_text, words, stats) if not err else []
         res.align_coverage = stats.get("coverage")
-        if decide_alignment(res.align_coverage, err) == "aligned":
+        if decide_alignment(prob, language, err) == "aligned":
             res.mode, res.lines = "aligned", lines
             return res
-        log.info("alignment coverage %.2f too low; showing the text as a teleprompter", res.align_coverage or 0)
+        log.info("alignment confidence %.2f too low; showing the text as a teleprompter", prob or 0)
         res.mode, res.text, res.source = "teleprompter", "\n".join(lines_text), src
         return res
 
@@ -130,25 +133,25 @@ def add_word_times(lines: list[Line], vocals_path: Path, language: str) -> tuple
     Returns (lines, coverage). Lines that already carry word times (pasted enhanced LRC) are kept
     as they are; on failure or low coverage the lines come back with line times only.
     """
-    from . import align
+    from . import ctc_align
 
     if not lines or any(line.words for line in lines):
         return lines, None
     try:
-        words, _ = _with_timeout(align.align_words, ALIGN_TIMEOUT, vocals_path, "\n".join(l.text for l in lines), language)
+        words, _ = _with_timeout(ctc_align.align_words, ALIGN_TIMEOUT, vocals_path, "\n".join(l.text for l in lines), language)
     except Exception as e:
         log.warning("word alignment of synced lyrics failed: %s", e)
         return lines, None
     stats: dict = {}
-    out = lrc.words_in_synced(lines, words, stats=stats)
+    out = lrc.words_in_synced(lines, words, min_prob=ANCHOR_PROB, stats=stats)
     log.info("synced word timing: coverage %.2f", stats.get("coverage", 0.0))
     return out, stats.get("coverage")
 
 
 def timed_lines(lines_text: list[str], words: list[tuple[float, str, float]], stats: dict | None = None) -> list[Line]:
-    """Per-word times anchored on confident words (D-lyrics-engine-6); line-level mapping when
-    fewer than two words are confident. Shifted by ALIGNED_LEAD."""
-    lines = lrc.anchor_words(lines_text, words, stats=stats)
+    """Per-word times anchored on the aligner's words (D-lyrics-engine-6, -10); line-level mapping
+    when fewer than two words can be anchored. Shifted by ALIGNED_LEAD."""
+    lines = lrc.anchor_words(lines_text, words, min_prob=ANCHOR_PROB, stats=stats)
     if not lines:
         lines = lrc.map_words_to_lines(lines_text, [(t, w) for t, w, _ in words])
     return lrc.shift(lines, -ALIGNED_LEAD)
@@ -161,7 +164,7 @@ def classify_pasted(text: str) -> str:
 
 def lyrics_from_paste(text: str, vocals_path: Path, language: str | None = None) -> LyricsResult:
     """Lyrics a guest pasted: LRC is offset-corrected (D6), plain text is aligned to the vocals."""
-    from . import align
+    from . import ctc_align
 
     act = vocals.load_activity(vocals_path)
     v_start, v_end = vocals.onsets(act)
@@ -176,7 +179,7 @@ def lyrics_from_paste(text: str, vocals_path: Path, language: str | None = None)
     if not lines_text:
         return res
     try:
-        words, prob, err = *_with_timeout(align.align_words, ALIGN_TIMEOUT, vocals_path, "\n".join(lines_text), language), False
+        words, prob, err = *_with_timeout(ctc_align.align_words, ALIGN_TIMEOUT, vocals_path, "\n".join(lines_text), language), False
     except Exception as e:
         log.warning("alignment of pasted lyrics failed: %s", e)
         words, prob, err = [], None, True
@@ -184,7 +187,7 @@ def lyrics_from_paste(text: str, vocals_path: Path, language: str | None = None)
     stats: dict = {}
     lines = timed_lines(lines_text, words, stats) if not err else []
     res.align_coverage = stats.get("coverage")
-    if decide_alignment(res.align_coverage, err) == "aligned":
+    if decide_alignment(prob, language, err) == "aligned":
         res.mode, res.lines = "aligned", lines
     else:
         res.mode, res.text = "teleprompter", "\n".join(lines_text)

@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from . import engine, media
+from . import ctc_align, engine, media
 from .cache import Cache
 
 log = logging.getLogger(__name__)
@@ -50,6 +50,7 @@ def process(video_id: str, cache: Cache, status: StatusFn | None = None, mode: s
         "lyrics_offset": res.offset,
         "align_prob": res.align_prob,
         "align_coverage": res.align_coverage,
+        "word_aligner": ctc_align.NAME,
         "vocal_start": res.vocal_start,
         "vocal_end": res.vocal_end,
         "separator": mode,
@@ -76,7 +77,7 @@ def replace_lyrics(video_id: str, cache: Cache, text: str) -> dict:
         raise ValueError("no lyric lines in the pasted text")
     engine.write_lyrics(res, d)
     meta.update(lyrics_mode=res.mode, lyrics_source="pasted", lyrics_offset=res.offset, align_prob=res.align_prob,
-                align_coverage=res.align_coverage)
+                align_coverage=res.align_coverage, word_aligner=ctc_align.NAME)
     write_meta(d, meta)
     return meta
 
@@ -123,13 +124,17 @@ def redo_lyrics(video_id: str, cache: Cache) -> dict:
         raise FileNotFoundError(f"{video_id} is not a complete cached song")
     meta = cache.read_meta(video_id)
     if meta.get("lyrics_source") == "pasted":
-        return _add_words_to_pasted(d, meta)
+        return refresh_word_times(d, meta)
     t = time.time()
     res = engine.build_lyrics(meta, d / "vocals.flac")
+    if is_downgrade(meta.get("lyrics_mode"), res.mode):
+        # e.g. LRCLIB unreachable this time: keep the lyrics we have, only refresh their word times
+        log.warning("%s: redo gave %s, worse than %s; keeping the old lyrics", video_id, res.mode, meta.get("lyrics_mode"))
+        return refresh_word_times(d, meta)
     engine.write_lyrics(res, d)
     meta.update(
         language=res.language, lyrics_mode=res.mode, lyrics_source=res.source, lyrics_offset=res.offset,
-        align_prob=res.align_prob, align_coverage=res.align_coverage, vocal_start=res.vocal_start,
+        align_prob=res.align_prob, align_coverage=res.align_coverage, word_aligner=ctc_align.NAME, vocal_start=res.vocal_start,
         vocal_end=res.vocal_end,
     )
     meta.setdefault("timings", {})["lyrics"] = round(time.time() - t, 1)
@@ -137,8 +142,17 @@ def redo_lyrics(video_id: str, cache: Cache) -> dict:
     return meta
 
 
-def _add_words_to_pasted(d: Path, meta: dict) -> dict:
-    """Pasted lyrics are kept, but pasted synced lines without word times get them added."""
+MODE_RANK = {"none": 0, "teleprompter": 1, "aligned": 2, "synced": 3}
+
+
+def is_downgrade(old: str | None, new: str) -> bool:
+    """True when a redo would replace lyrics with a worse kind (synced > aligned > teleprompter > none)."""
+    return MODE_RANK.get(new, 0) < MODE_RANK.get(old or "none", 0)
+
+
+def refresh_word_times(d: Path, meta: dict) -> dict:
+    """Keep a song's lyrics. Synced lines get word times added, or redone when an older aligner made
+    them (meta word_aligner); word times a guest pasted themselves are kept."""
     from . import lrc
     from .cache import write_meta
 
@@ -146,9 +160,19 @@ def _add_words_to_pasted(d: Path, meta: dict) -> dict:
     if meta.get("lyrics_mode") != "synced" or not f.exists():
         return meta
     lines = lrc.parse_lrc(f.read_text("utf-8"))
+    if needs_new_word_times(meta, lines):
+        lines = [lrc.Line(line.t, line.text) for line in lines]
     out, coverage = engine.add_word_times(lines, d / "vocals.flac", meta.get("language") or "en")
     if out is not lines and any(line.words for line in out):
         f.write_text(lrc.format_lrc(out), "utf-8")
-    meta["align_coverage"] = coverage
+        meta["word_aligner"] = ctc_align.NAME
+        meta["align_coverage"] = coverage
     write_meta(d, meta)
     return meta
+
+
+def needs_new_word_times(meta: dict, lines) -> bool:
+    """True when the word times in these lines came from an aligner other than the current one.
+    Songs from before word_aligner was recorded with word times were timed by Whisper."""
+    has_words = any(line.words for line in lines)
+    return has_words and meta.get("word_aligner", "whisper" if meta.get("align_coverage") is not None else None) not in (None, ctc_align.NAME)

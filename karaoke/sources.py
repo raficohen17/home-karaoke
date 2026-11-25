@@ -153,6 +153,23 @@ def lrclib_queries(name: SongName, limit: int = 6) -> list[dict]:
     return out[:limit]
 
 
+def get_with_retry(client, url: str, tries: int = 3, wait: float = 1.0, sleep=None, **kw):
+    """GET that retries transport errors (dropped connections, timeouts) with growing waits.
+    LRCLIB sometimes disconnects without a response; one blip must not cost a song its lyrics."""
+    import time
+
+    import httpx
+
+    sleep = sleep or time.sleep
+    for attempt in range(tries):
+        try:
+            return client.get(url, **kw)
+        except httpx.TransportError:
+            if attempt == tries - 1:
+                raise
+            sleep(wait * (attempt + 1))
+
+
 def fetch_lrclib(name: SongName, duration: float | None = None) -> list[LrclibHit]:
     """Collect hits across aliases; stop once a synced hit fits the duration."""
     import httpx
@@ -164,7 +181,7 @@ def fetch_lrclib(name: SongName, duration: float | None = None) -> list[LrclibHi
     hits: list[LrclibHit] = []
     with httpx.Client(timeout=20, headers={"User-Agent": "home-karaoke/0.1"}) as c:
         for params in lrclib_queries(name):
-            r = c.get("https://lrclib.net/api/search", params=params)
+            r = get_with_retry(c, "https://lrclib.net/api/search", params=params)
             if r.status_code == 200:
                 hits += parse_lrclib(r.json())
             synced, _ = choose_lrclib(hits, name, duration)

@@ -26,6 +26,8 @@ YouTube `video_id`.
 The pipeline downloads video capped at 720p H.264 with audio
 (`bv*[height<=720][vcodec^=avc1]+ba`) as `video.mp4`, and extracts 44.1 kHz stereo audio.
 
+- WHEN YouTube serves a JavaScript signature challenge (common on official music videos) THEN yt-dlp
+  solves it with Deno and the `yt-dlp-ejs` solver scripts (D-media-pipeline-6).
 - WHEN yt-dlp fails (age-restricted, region-blocked, removed, extractor error) THEN the song ends
   `FAILED` with yt-dlp's reason and the queue moves on.
 
@@ -76,3 +78,7 @@ so the app works behind TLS-inspecting proxies.
   the mix, and if that would clip, both stems share one reduction so the balance holds.
 - **D-media-pipeline-4 — OS trust store via `truststore`.** certifi rejects proxy-issued certificates
   that curl and browsers accept. Rejects disabling certificate checks.
+- **D-media-pipeline-6 — YouTube challenges are solved locally with Deno + `yt-dlp-ejs`.** Without a
+  solver, official videos such as Taylor Swift's "Shake It Off" (nfWlot6h_JM) had no downloadable
+  formats and failed, while lyric-video uploads worked. Deno is yt-dlp's default runtime; the solver
+  scripts come from the `yt-dlp-ejs` package, not downloaded from GitHub at run time.

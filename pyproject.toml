@@ -15,9 +15,12 @@ dependencies = [
     "soundfile>=0.14.0",
     "stable-ts>=2.19.1",
     "syncedlyrics>=1.0.1",
+    "torchaudio>=2.9",
+    "transformers>=4.50",
     "truststore>=0.10.5",
     "uvicorn[standard]>=0.54.0",
     "yt-dlp>=2026.11.23",
+    "yt-dlp-ejs>=0.8.0",
 ]
 
 [dependency-groups]
