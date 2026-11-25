@@ -125,12 +125,18 @@ function unloadSong() {
 function renderSong() {
   const { meta, lines, text } = song;
   $("np-title").textContent = meta.title || "";
-  $("np-mode").textContent = { synced: "synced lyrics", aligned: "auto-aligned lyrics", transcribed: "transcribed lyrics", teleprompter: "teleprompter", none: "no lyrics found" }[meta.lyrics_mode] || "";
+  $("np-mode").textContent = { synced: "synced lyrics", aligned: "auto-aligned lyrics", teleprompter: "teleprompter", none: "no lyrics found" }[meta.lyrics_mode] || "";
   $("nowplaying").hidden = false;
   $("lyrics").replaceChildren();
   lineEls = []; lastActive = -2; lastSung = -1;
   $("prompter").hidden = !text;
   $("nudge").hidden = !text;
+  if (meta.lyrics_mode === "none") {
+    // no transcription fallback (D-lyrics-engine-9): ask the room for the words
+    $("lyrics").append(Object.assign(document.createElement("div"), {
+      className: "line notice", textContent: "No lyrics found. Paste them from a phone: Lyrics missing? Paste them",
+    }));
+  }
   if (text) {
     $("prompter-text").textContent = text;
     $("prompter-text").style.transform = "translateY(0)";

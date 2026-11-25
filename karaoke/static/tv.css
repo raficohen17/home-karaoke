@@ -23,6 +23,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); o
 .line .w.sung { color: var(--accent); transition: color .08s; }
 .line.far { opacity: .35; }
 .line.empty::before { content: "♪"; }
+.line.notice { color: var(--fg); font-size: 2.4vw; max-width: 70vw; }
 
 #prompter { position: fixed; inset: 12vh 8vw 14vh; overflow: hidden; mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent); }
 #prompter-text { unicode-bidi: plaintext; white-space: pre-line; text-align: center; font-size: 3.2vw; line-height: 1.6;

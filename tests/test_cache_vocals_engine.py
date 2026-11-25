@@ -107,7 +107,7 @@ def test_decide_alignment(cov, err, mode):
     assert engine.decide_alignment(cov, err) == mode
 
 
-def test_low_coverage_falls_back_to_transcription(monkeypatch, tmp_path):
+def test_low_coverage_shows_text_as_teleprompter(monkeypatch, tmp_path):
     import soundfile as sf
     from karaoke import align, sources
 
@@ -116,9 +116,22 @@ def test_low_coverage_falls_back_to_transcription(monkeypatch, tmp_path):
     sf.write(str(tmp_path / "v.flac"), sig, sr)
     monkeypatch.setattr(sources, "fetch_lrclib", lambda name, d=None: [sources.LrclibHit("שיר", "זמר", 300.0, None, "שורה אחת\nשורה שתיים")])
     monkeypatch.setattr(align, "align_words", lambda v, text, lang: ([(1.0, "שורה", 0.1), (9.0, "אחת", 0.1)], 0.1))
-    monkeypatch.setattr(align, "transcribe_lines", lambda v, lang: [Line(2.0, "שורה אחת", ((2.0, "שורה"), (2.4, "אחת")))])
     res = engine.build_lyrics({"title": "זמר - שיר", "channel": "x", "duration": 10}, tmp_path / "v.flac")
-    assert res.mode == "transcribed" and res.lines[0].words[1] == (2.4, "אחת") and res.align_coverage == 0.0
+    assert res.mode == "teleprompter" and res.text == "שורה אחת\nשורה שתיים" and res.align_coverage == 0.0
+
+
+def test_no_lyrics_found_means_none_not_transcription(monkeypatch, tmp_path):
+    import soundfile as sf
+    from karaoke import align, sources
+
+    sr = 8000
+    sf.write(str(tmp_path / "v.flac"), np.zeros(sr * 4, dtype=np.float32), sr)
+    monkeypatch.setattr(sources, "fetch_lrclib", lambda name, d=None: [])
+    monkeypatch.setattr(sources, "fetch_shironet", lambda name: None)
+    monkeypatch.setattr(align, "detect_language", lambda *a: "en")
+    assert not hasattr(align, "transcribe_lines")
+    res = engine.build_lyrics({"title": "singer - song", "channel": "x", "duration": 4}, tmp_path / "v.flac")
+    assert res.mode == "none" and not res.lines and res.text is None
 
 
 def test_good_coverage_keeps_text_with_word_times(monkeypatch, tmp_path):

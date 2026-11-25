@@ -1,4 +1,4 @@
-"""Forced alignment and transcription on the vocal stem with stable-ts + faster-whisper (D3)."""
+"""Forced alignment and language detection on the vocal stem with stable-ts + faster-whisper (D3)."""
 from __future__ import annotations
 
 import os
@@ -35,24 +35,6 @@ def align_words(vocals: Path, text: str, language: str) -> tuple[list[tuple[floa
     ]
     probs = [p for _, _, p in words]
     return words, (sum(probs) / len(probs) if probs else 0.0)
-
-
-def transcribe_lines(vocals: Path, language: str):
-    """Transcribe the vocal stem into timed lines (one per short segment) with per-word times."""
-    from .lrc import Line
-
-    model = _model(language)
-    # vad=False: Silero VAD is fetched from GitHub at runtime (fails behind proxies); stable-ts
-    # still suppresses silence with its own loudness-based detection.
-    result = model.transcribe(str(vocals), language=language, vad=False, word_timestamps=True)
-    result.split_by_length(max_chars=42)
-    out = []
-    for seg in result.segments:
-        words = tuple((round(float(w.start), 2), w.word.strip()) for w in seg.words if w.word.strip())
-        text = " ".join(w for _, w in words) or seg.text.strip()
-        if text:
-            out.append(Line(words[0][0] if words else float(seg.start), text, words))
-    return out
 
 
 def detect_language(vocals: Path, start: float | None = None, end: float | None = None) -> str:

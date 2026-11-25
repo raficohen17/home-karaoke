@@ -1,4 +1,6 @@
-"""Lyrics waterfall: synced (LRCLIB, offset-corrected) -> aligned text -> transcribed -> teleprompter/none."""
+"""Lyrics waterfall: synced (LRCLIB, offset-corrected) -> aligned text -> teleprompter -> none.
+
+There is no transcription: a song with no lyrics found waits for a guest to paste them (D-lyrics-engine-9)."""
 from __future__ import annotations
 
 import concurrent.futures as cf
@@ -18,7 +20,7 @@ ALIGNED_LEAD = 0.0  # anchored word times already run ~0.28s early vs hand-synce
 
 @dataclass
 class LyricsResult:
-    mode: str  # synced | aligned | transcribed | teleprompter | none
+    mode: str  # synced | aligned | teleprompter | none
     lines: list[Line] = field(default_factory=list)
     text: str | None = None
     source: str | None = None
@@ -41,7 +43,7 @@ MIN_COVERAGE = 0.35  # share of words anchored in order needed to trust an align
 
 
 def decide_alignment(coverage: float | None, error: bool) -> str:
-    """Mode after an alignment attempt: 'aligned', or 'fallback' (try transcription, then teleprompter).
+    """Mode after an alignment attempt: 'aligned', or 'fallback' (show the text as a teleprompter).
 
     Gated on anchor coverage, not mean probability: a live recording with talking between verses
     has a low mean even where the singing aligns well, and a mean can look fine while the aligner
@@ -114,29 +116,12 @@ def build_lyrics(meta: dict, vocals_path: Path, progress=None) -> LyricsResult:
         if decide_alignment(res.align_coverage, err) == "aligned":
             res.mode, res.lines = "aligned", lines
             return res
-        log.info("alignment coverage %.2f too low; transcribing instead", res.align_coverage or 0)
-        if transcribe_into(res, vocals_path, language):
-            return res
+        log.info("alignment coverage %.2f too low; showing the text as a teleprompter", res.align_coverage or 0)
         res.mode, res.text, res.source = "teleprompter", "\n".join(lines_text), src
         return res
 
-    transcribe_into(res, vocals_path, language)
+    log.info("no lyrics found for %s / %s; a guest can paste them", name.artist, name.title)
     return res
-
-
-def transcribe_into(res: LyricsResult, vocals_path: Path, language: str) -> bool:
-    """Fill res with Whisper's transcription of the vocals (per-word times); False if it fails."""
-    from . import align
-
-    try:
-        lines = _with_timeout(align.transcribe_lines, ALIGN_TIMEOUT * 2, vocals_path, language)
-    except Exception as e:
-        log.warning("transcription failed: %s", e)
-        return False
-    if not lines:
-        return False
-    res.mode, res.lines, res.source = "transcribed", lines, "whisper"
-    return True
 
 
 def add_word_times(lines: list[Line], vocals_path: Path, language: str) -> tuple[list[Line], float | None]:

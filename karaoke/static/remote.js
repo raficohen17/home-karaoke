@@ -33,6 +33,8 @@ function render(s) {
   }));
   $("queue-empty").hidden = s.queue.length > 0;
   $("nudge").hidden = !s.current;
+  const sig = [s.current, ...s.queue].filter((e) => e && e.status === "READY").map((e) => e.video_id).sort().join();
+  if (sig !== readySig) { readySig = sig; loadLibrary(); }  // a song just got ready: refresh its lyrics status
   renderPasteTargets();
 }
 
@@ -59,14 +61,25 @@ async function search(q) {
 }
 
 let library = [];
+let readySig = "";
+// Songs with no lyrics found come first: there is no transcription, a guest pastes them (D-lyrics-engine-9).
 function renderPasteTargets() {
   const sel = $("paste-song"), prev = sel.value;
+  const mode = Object.fromEntries(library.map((s) => [s.video_id, s.lyrics_mode]));
+  const tag = (v, t) => (mode[v] === "none" ? t + " (no lyrics)" : t);
+  const cur = state.current?.video_id;
   const opts = [];
-  if (state.current) opts.push([state.current.video_id, "Now playing: " + (state.current.title || state.current.video_id)]);
-  for (const s of library) if (s.video_id !== state.current?.video_id) opts.push([s.video_id, s.title]);
+  if (cur) opts.push([cur, tag(cur, "Now playing: " + (state.current.title || cur))]);
+  const rest = library.filter((s) => s.video_id !== cur);
+  rest.sort((a, b) => (b.lyrics_mode === "none") - (a.lyrics_mode === "none"));
+  for (const s of rest) opts.push([s.video_id, tag(s.video_id, s.title)]);
   sel.replaceChildren(...opts.map(([v, t]) => el("option", { value: v, textContent: t })));
+  const missing = opts.find(([v]) => mode[v] === "none");
   if (opts.some(([v]) => v === prev)) sel.value = prev;
+  else if (missing) sel.value = missing[0];
   $("paste-box").hidden = !opts.length;
+  $("paste-summary").textContent = missing ? "No lyrics found for a song. Paste them here" : "Lyrics missing or wrong? Paste them";
+  if (cur && mode[cur] === "none") $("paste-box").open = true;
 }
 
 $("paste-form").onsubmit = async (e) => {
@@ -79,6 +92,7 @@ $("paste-form").onsubmit = async (e) => {
   if (!r.ok) { $("paste-msg").textContent = j.detail || "Failed"; return; }
   $("paste-msg").textContent = j.lyrics_mode === "teleprompter" ? "Couldn't sync line by line — showing them as a scrolling teleprompter." : "Done — lyrics updated on the TV.";
   $("paste-text").value = "";
+  loadLibrary();
 };
 
 async function loadLibrary() {
